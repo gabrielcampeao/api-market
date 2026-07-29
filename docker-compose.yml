@@ -1,0 +1,60 @@
+name: marketplace-api
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: marketplace
+      POSTGRES_PASSWORD: marketplace
+      POSTGRES_DB: marketplace
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U marketplace -d marketplace']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://marketplace:marketplace@postgres:5432/marketplace?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: dev-access-secret-change-me
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-me
+      JWT_REFRESH_TTL_DAYS: 7
+      THROTTLE_TTL_MS: 60000
+      THROTTLE_LIMIT: 60
+      THROTTLE_AUTH_LIMIT: 20
+      ADMIN_EMAIL: admin@marketplace.dev
+      ADMIN_PASSWORD: Admin123!
+      ADMIN_NAME: Admin
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
