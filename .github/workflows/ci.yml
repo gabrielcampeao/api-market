@@ -142,23 +142,6 @@ jobs:
       - name: Build and restart the api container
         run: docker compose --env-file "$HOME/marketplace-prod.env" -f docker-compose.prod.yml up -d --build api
 
-      - name: Debug networking (temporary)
-        run: |
-          echo "=== whoami / id ==="
-          whoami; id
-          echo "=== docker port ==="
-          docker port marketplace-api-prod-api-1 || true
-          echo "=== docker ps ==="
-          docker ps --filter name=marketplace-api-prod-api-1
-          echo "=== curl -v 127.0.0.1:3000 ==="
-          curl -v --max-time 5 http://127.0.0.1:3000/api/health/ready || true
-          echo "=== curl -v localhost:3000 ==="
-          curl -v --max-time 5 http://localhost:3000/api/health/ready || true
-          echo "=== ss -ltnp :3000 ==="
-          ss -ltnp | grep 3000 || echo "nothing listening on 3000 per ss"
-          echo "=== docker inspect network mode ==="
-          docker inspect marketplace-api-prod-api-1 --format '{{.HostConfig.NetworkMode}} {{json .NetworkSettings.Ports}}'
-
       - name: Wait for readiness
         id: readiness
         run: |
