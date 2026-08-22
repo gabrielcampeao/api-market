@@ -90,6 +90,18 @@ export class MetricsService {
     registers: [this.registry],
   });
 
+  // Prometheus's own `up{job="marketplace-api"}` already tells you whether
+  // the process is reachable at all; this is the layer below that — is the
+  // process up but one of ITS dependencies down (matching what
+  // GET /api/health/ready checks), which `up` alone can't distinguish from
+  // "everything is fine".
+  readonly dependencyUp = new Gauge({
+    name: 'dependency_up',
+    help: '1 if the last check of this dependency succeeded, 0 otherwise',
+    labelNames: ['dependency'] as const,
+    registers: [this.registry],
+  });
+
   constructor() {
     // process_cpu_seconds_total, process_resident_memory_bytes, nodejs_*, etc.
     // — standard process/runtime metrics every Prometheus setup expects,
