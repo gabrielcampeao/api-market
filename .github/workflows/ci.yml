@@ -115,3 +115,41 @@ jobs:
           name: coverage-report
           path: coverage/
           retention-days: 7
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Snapshot current image for rollback
+        run: |
+          docker tag marketplace-api-prod-api:latest marketplace-api-prod-api:rollback \
+            || echo "No previous image to snapshot (first deploy)"
+
+      - name: Build and restart the api container
+        run: docker compose --env-file "$HOME/marketplace-prod.env" -f docker-compose.prod.yml up -d --build api
+
+      - name: Wait for readiness
+        id: readiness
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health/ready || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "Readiness OK"
+              exit 0
+            fi
+            echo "Attempt $i: got HTTP $code, retrying in 5s..."
+            sleep 5
+          done
+          echo "Service did not become ready in time"
+          exit 1
+
+      - name: Roll back on failed readiness
+        if: failure() && steps.readiness.outcome == 'failure'
+        run: |
+          echo "Deploy failed readiness check, rolling back to previous image"
+          docker tag marketplace-api-prod-api:rollback marketplace-api-prod-api:latest
+          docker compose --env-file "$HOME/marketplace-prod.env" -f docker-compose.prod.yml up -d --no-build api
