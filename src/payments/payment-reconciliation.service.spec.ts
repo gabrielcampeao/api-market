@@ -21,13 +21,14 @@ function stuckPayment(overrides: Partial<Record<string, unknown>> = {}) {
 describe('PaymentReconciliationService', () => {
   let service: PaymentReconciliationService;
 
-  const payment_ = { findMany: jest.fn(), updateMany: jest.fn() };
+  const payment_ = { findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() };
   const paymentAttempt_ = {
     findFirst: jest.fn().mockResolvedValue({ id: 'attempt-1' }),
     update: jest.fn(),
   };
+  const order_ = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
   const txMock = {
-    order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    order: order_,
     payment: payment_,
     paymentAttempt: paymentAttempt_,
   };
@@ -47,6 +48,7 @@ describe('PaymentReconciliationService', () => {
     jest.clearAllMocks();
     prismaMock.paymentAttempt.findFirst.mockResolvedValue({ id: 'attempt-1' });
     prismaMock.payment.updateMany.mockResolvedValue({ count: 1 });
+    order_.updateMany.mockResolvedValue({ count: 1 });
     const moduleRef = await Test.createTestingModule({
       providers: [
         PaymentReconciliationService,
@@ -77,6 +79,22 @@ describe('PaymentReconciliationService', () => {
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
+  it('leaves the payment PROCESSING when checkStatus times out', async () => {
+    prismaMock.payment.findMany.mockResolvedValue([stuckPayment()]);
+    providerMock.checkStatus.mockReturnValue(new Promise(() => {}));
+
+    jest.useFakeTimers();
+    const pending = service.reconcileStuckPayments();
+    const assertion = expect(pending).resolves.toEqual(
+      expect.objectContaining({ stillUnknown: 1 }),
+    );
+    await jest.advanceTimersByTimeAsync(15_000);
+    await assertion;
+    jest.useRealTimers();
+
+    expect(prismaMock.payment.updateMany).not.toHaveBeenCalled();
+  });
+
   it('marks the payment FAILED when the provider says it was declined', async () => {
     prismaMock.payment.findMany.mockResolvedValue([stuckPayment()]);
     providerMock.checkStatus.mockResolvedValue({
@@ -97,6 +115,18 @@ describe('PaymentReconciliationService', () => {
     );
   });
 
+  it('does not log or count a decline it lost the race to claim', async () => {
+    prismaMock.payment.findMany.mockResolvedValue([stuckPayment()]);
+    providerMock.checkStatus.mockResolvedValue({ status: 'declined', providerRef: 'ref-1' });
+    prismaMock.payment.updateMany.mockResolvedValue({ count: 0 });
+
+    const summary = await service.reconcileStuckPayments();
+
+    expect(summary).toEqual({ checked: 1, approved: 0, declined: 0, stillUnknown: 0 });
+    expect(prismaMock.paymentAttempt.update).not.toHaveBeenCalled();
+    expect(auditMock.log).not.toHaveBeenCalled();
+  });
+
   it('approves the payment and pays the order when the provider says it was approved', async () => {
     prismaMock.payment.findMany.mockResolvedValue([stuckPayment()]);
     providerMock.checkStatus.mockResolvedValue({ status: 'approved', providerRef: 'ref-1' });
@@ -109,19 +139,32 @@ describe('PaymentReconciliationService', () => {
     );
   });
 
-  it('reverses to REFUNDED instead of paying an order that was cancelled while stuck', async () => {
-    prismaMock.payment.findMany.mockResolvedValue([stuckPayment({ order: { id: 'o-1', status: OrderStatus.CANCELLED } })]);
+  it('does not log, pay the order, or count an approval it lost the race to claim', async () => {
+    prismaMock.payment.findMany.mockResolvedValue([stuckPayment()]);
     providerMock.checkStatus.mockResolvedValue({ status: 'approved', providerRef: 'ref-1' });
-    prismaMock.$transaction.mockImplementationOnce((arg: (tx: unknown) => Promise<unknown>) =>
-      arg({
-        order: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-        payment: prismaMock.payment,
-        paymentAttempt: prismaMock.paymentAttempt,
-      }),
-    );
+    payment_.updateMany.mockResolvedValue({ count: 0 });
+
+    const summary = await service.reconcileStuckPayments();
+
+    expect(summary).toEqual({ checked: 1, approved: 0, declined: 0, stillUnknown: 0 });
+    expect(order_.updateMany).not.toHaveBeenCalled();
+    expect(paymentAttempt_.update).not.toHaveBeenCalled();
+    expect(auditMock.log).not.toHaveBeenCalled();
+  });
+
+  it('reverses to REFUNDED instead of paying an order that was cancelled while stuck', async () => {
+    prismaMock.payment.findMany.mockResolvedValue([
+      stuckPayment({ order: { id: 'o-1', status: OrderStatus.CANCELLED } }),
+    ]);
+    providerMock.checkStatus.mockResolvedValue({ status: 'approved', providerRef: 'ref-1' });
+    order_.updateMany.mockResolvedValue({ count: 0 });
 
     await service.reconcileStuckPayments();
 
+    expect(payment_.update).toHaveBeenCalledWith({
+      where: { id: 'pay-1' },
+      data: { status: PaymentStatus.REFUNDED },
+    });
     expect(auditMock.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'payment.reconciled_reversed_order_cancelled' }),
     );
@@ -139,5 +182,41 @@ describe('PaymentReconciliationService', () => {
     const summary = await service.reconcileStuckPayments();
 
     expect(summary).toEqual({ checked: 2, approved: 1, declined: 0, stillUnknown: 1 });
+  });
+
+  it('keeps checking the rest of the batch when one payment errors', async () => {
+    prismaMock.payment.findMany.mockResolvedValue([
+      stuckPayment({ id: 'pay-1' }),
+      stuckPayment({ id: 'pay-2', order: { id: 'o-2', status: OrderStatus.PENDING } }),
+    ]);
+    providerMock.checkStatus
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ status: 'approved', providerRef: 'ref-2' });
+
+    const summary = await service.reconcileStuckPayments();
+
+    expect(summary).toEqual({ checked: 2, approved: 1, declined: 0, stillUnknown: 0 });
+    expect(auditMock.log).toHaveBeenCalledWith(
+      expect.objectContaining({ entityId: 'o-2', action: 'payment.reconciled_approved' }),
+    );
+  });
+
+  it('skips a run that starts while a previous one is still in flight', async () => {
+    let resolveFirstCheckStatus!: (value: { status: 'unknown' }) => void;
+    prismaMock.payment.findMany.mockResolvedValue([stuckPayment()]);
+    providerMock.checkStatus.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFirstCheckStatus = resolve;
+      }),
+    );
+
+    const first = service.reconcileStuckPayments();
+    const second = await service.reconcileStuckPayments();
+
+    expect(second).toEqual({ checked: 0, approved: 0, declined: 0, stillUnknown: 0 });
+    expect(prismaMock.payment.findMany).toHaveBeenCalledTimes(1);
+
+    resolveFirstCheckStatus({ status: 'unknown' });
+    await first;
   });
 });
