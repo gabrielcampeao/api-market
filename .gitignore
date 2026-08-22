@@ -13,8 +13,9 @@ build/
 # Prisma
 prisma/*.db
 
-# Logs
-logs/
+# Logs (Winston output directory at the repo root — not src/logs, which is
+# the LogsModule source)
+/logs/
 *.log
 npm-debug.log*
 
