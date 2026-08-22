@@ -23,6 +23,7 @@ import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { LogsModule } from './logs/logs.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { GraphqlApiModule } from './graphql/graphql-api.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { IdempotencyInterceptor } from './idempotency/idempotency.interceptor';
@@ -40,6 +41,7 @@ import { ThrottlerRedisLike } from './throttler/redis-throttler.storage';
   imports: [
     EnvConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
+    MetricsModule,
     AppConfigModule,
     PrismaModule,
     RedisModule,

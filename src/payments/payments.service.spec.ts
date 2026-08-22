@@ -5,6 +5,7 @@ import { PaymentsService } from './payments.service';
 import { PAYMENT_PROVIDER } from './providers/payment-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { RequestContext } from '../common/utils/request-context.util';
 import { AuthenticatedUser } from '../auth/interfaces/auth.types';
 
@@ -72,6 +73,7 @@ describe('PaymentsService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         PaymentsService,
+        MetricsService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditLogService, useValue: auditMock },
         { provide: PAYMENT_PROVIDER, useValue: providerMock },

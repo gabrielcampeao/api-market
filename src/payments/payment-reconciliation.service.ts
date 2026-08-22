@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { OrderStatus, PaymentAttemptStatus, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { PAYMENT_PROVIDER, PaymentProvider } from './providers/payment-provider.interface';
 
 const DEFAULT_STALE_AFTER_MS = 5 * 60 * 1000;
@@ -26,6 +27,7 @@ export class PaymentReconciliationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly metrics: MetricsService,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
   ) {}
 
@@ -45,7 +47,12 @@ export class PaymentReconciliationService {
     for (const payment of stuck) {
       const outcome = await this.reconcileOne(payment, payment.order);
       summary[outcome]++;
+      this.metrics.paymentReconciliationTotal.inc({ outcome });
     }
+    // Payments this run couldn't resolve — a live count of what's actually
+    // stuck right now, not a running total (which paymentReconciliationTotal
+    // already is), so this is a gauge rather than a counter.
+    this.metrics.stuckPaymentsTotal.set(summary.stillUnknown);
     if (summary.checked > 0) {
       this.logger.log(
         `Reconciliation: checked=${summary.checked} approved=${summary.approved} declined=${summary.declined} stillUnknown=${summary.stillUnknown}`,

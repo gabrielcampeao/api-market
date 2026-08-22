@@ -4,6 +4,7 @@ import { PaymentReconciliationService } from './payment-reconciliation.service';
 import { PAYMENT_PROVIDER } from './providers/payment-provider.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 const decimal = (value: string) => new Prisma.Decimal(value);
 
@@ -49,6 +50,7 @@ describe('PaymentReconciliationService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         PaymentReconciliationService,
+        MetricsService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditLogService, useValue: auditMock },
         { provide: PAYMENT_PROVIDER, useValue: providerMock },

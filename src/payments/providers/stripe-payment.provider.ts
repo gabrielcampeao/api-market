@@ -3,6 +3,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import Stripe from 'stripe';
 import { PaymentProvider, PaymentResult, PaymentStatusResult } from './payment-provider.interface';
 import { AppConfigService } from '../../config/app-config.service';
+import { MetricsService } from '../../metrics/metrics.service';
 
 // No real checkout UI collects a card in this project — orders are paid
 // through a single backend endpoint, not a client-side Stripe Elements
@@ -26,7 +27,10 @@ export class StripePaymentProvider implements PaymentProvider {
   // which the factory guarantees won't happen without a key.
   private readonly stripe: Stripe | undefined;
 
-  constructor(config: AppConfigService) {
+  constructor(
+    config: AppConfigService,
+    private readonly metrics: MetricsService,
+  ) {
     this.stripe = config.stripeSecretKey ? new Stripe(config.stripeSecretKey) : undefined;
   }
 
@@ -37,7 +41,18 @@ export class StripePaymentProvider implements PaymentProvider {
     return this.stripe;
   }
 
-  async charge(amount: Decimal, reference: string, idempotencyKey: string): Promise<PaymentResult> {
+  // Both charge() and checkStatus() are the same PaymentIntent-create call
+  // (see checkStatus's own comment for why re-sending it is safe) — this is
+  // the one place that actually crosses the network, so it's the one place
+  // stripe_request_duration_seconds/stripe_errors_total get recorded,
+  // labeled by which caller made the request.
+  private async createPaymentIntent(
+    operation: 'charge' | 'checkStatus',
+    amount: Decimal,
+    reference: string,
+    idempotencyKey: string,
+  ): Promise<Stripe.PaymentIntent> {
+    const stop = this.metrics.stripeRequestDurationSeconds.startTimer({ operation });
     try {
       const intent = await this.client().paymentIntents.create(
         {
@@ -51,6 +66,24 @@ export class StripePaymentProvider implements PaymentProvider {
         },
         { idempotencyKey },
       );
+      stop();
+      return intent;
+    } catch (err) {
+      stop();
+      // A card decline is Stripe's normal response, not a failure of the
+      // call itself — only count genuine transport/API errors here, the
+      // same distinction PaymentsService's payment_failed_total draws
+      // between a decline and a provider error.
+      if (!(err instanceof Stripe.errors.StripeCardError)) {
+        this.metrics.stripeErrorsTotal.inc({ operation });
+      }
+      throw err;
+    }
+  }
+
+  async charge(amount: Decimal, reference: string, idempotencyKey: string): Promise<PaymentResult> {
+    try {
+      const intent = await this.createPaymentIntent('charge', amount, reference, idempotencyKey);
       return this.toResult(intent);
     } catch (err) {
       if (err instanceof Stripe.errors.StripeCardError) {
@@ -82,18 +115,7 @@ export class StripePaymentProvider implements PaymentProvider {
       // idempotency key for returns the original PaymentIntent instead of
       // creating a new charge — this is a status check, not a second charge,
       // as long as amount/reference/idempotencyKey all match the original.
-      const intent = await this.client().paymentIntents.create(
-        {
-          amount: toCents(amount),
-          currency: 'usd',
-          payment_method: TEST_PAYMENT_METHOD,
-          confirm: true,
-          off_session: true,
-          description: `order:${reference}`,
-          metadata: { orderId: reference },
-        },
-        { idempotencyKey },
-      );
+      const intent = await this.createPaymentIntent('checkStatus', amount, reference, idempotencyKey);
       const result = this.toResult(intent);
       return result.approved
         ? { status: 'approved', providerRef: result.providerRef }

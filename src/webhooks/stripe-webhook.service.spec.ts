@@ -12,6 +12,7 @@ import { StripeWebhookService } from './stripe-webhook.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
 import { AppConfigService } from '../config/app-config.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 const constructEventMock = jest.fn();
 
@@ -73,6 +74,7 @@ describe('StripeWebhookService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         StripeWebhookService,
+        MetricsService,
         { provide: AppConfigService, useValue: configMock },
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditLogService, useValue: auditMock },

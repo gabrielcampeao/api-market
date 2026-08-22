@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
 import { AppConfigService } from '../config/app-config.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 const PROVIDER = 'stripe';
 
@@ -16,6 +17,7 @@ export class StripeWebhookService {
     private readonly config: AppConfigService,
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly metrics: MetricsService,
   ) {
     // constructEvent() below is pure local HMAC verification against
     // stripeWebhookSecret — it never calls the Stripe API, so the client
@@ -34,9 +36,11 @@ export class StripeWebhookService {
       // Deliberately not "not configured, skipping" — an attacker sending
       // requests here while this is unset should get the same rejection as
       // a bad signature, not a hint that the endpoint exists but is open.
+      this.metrics.webhookInvalidSignatureTotal.inc({ provider: PROVIDER });
       throw new BadRequestException('Webhook signature could not be verified');
     }
     if (!rawBody || !signature) {
+      this.metrics.webhookInvalidSignatureTotal.inc({ provider: PROVIDER });
       throw new BadRequestException('Webhook signature could not be verified');
     }
 
@@ -45,8 +49,10 @@ export class StripeWebhookService {
       event = this.stripe.webhooks.constructEvent(rawBody, signature, this.config.stripeWebhookSecret);
     } catch (err) {
       this.logger.warn(`Rejected webhook: ${err instanceof Error ? err.message : String(err)}`);
+      this.metrics.webhookInvalidSignatureTotal.inc({ provider: PROVIDER });
       throw new BadRequestException('Webhook signature could not be verified');
     }
+    this.metrics.webhookReceivedTotal.inc({ provider: PROVIDER, type: event.type });
 
     // Persisted before processing: if handling crashes below, the event is
     // on disk and a Stripe retry will find this row (via the unique
@@ -60,6 +66,7 @@ export class StripeWebhookService {
       // considers unconfirmed (or the same event genuinely sent twice).
       // Same event, sent any number of times, must land on the same final
       // state; doing nothing here is what guarantees that.
+      this.metrics.webhookDuplicateTotal.inc({ provider: PROVIDER });
       return { status: 'duplicate' };
     }
 
@@ -83,6 +90,7 @@ export class StripeWebhookService {
           // IdempotencyService does — Stripe only needs a 2xx to stop
           // retrying, and the winner's processing already covers the
           // outcome exactly once.
+          this.metrics.webhookDuplicateTotal.inc({ provider: PROVIDER });
           return { status: 'duplicate' };
         }
         throw err;

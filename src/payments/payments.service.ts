@@ -13,6 +13,7 @@ import { RequestContext } from '../common/utils/request-context.util';
 import { AuthenticatedUser } from '../auth/interfaces/auth.types';
 import { PaymentDto } from '../orders/dto/order.dto';
 import { withTimeout } from '../common/utils/with-timeout.util';
+import { MetricsService } from '../metrics/metrics.service';
 import { PAYMENT_PROVIDER, PaymentProvider } from './providers/payment-provider.interface';
 
 const PROVIDER_TIMEOUT_MS = 15_000;
@@ -22,6 +23,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly metrics: MetricsService,
     @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
   ) {}
 
@@ -89,6 +91,8 @@ export class PaymentsService {
       },
     });
 
+    this.metrics.paymentAttemptTotal.inc({ provider: this.provider.name });
+
     let result;
     try {
       // payment.providerIdempotencyKey is the same value on every attempt
@@ -103,6 +107,7 @@ export class PaymentsService {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      this.metrics.paymentFailedTotal.inc({ provider: this.provider.name, reason: 'provider_error' });
       await this.prisma.paymentAttempt.update({
         where: { id: attempt.id },
         data: { status: PaymentAttemptStatus.ERROR, failureMessage: message, finishedAt: new Date() },
@@ -129,6 +134,7 @@ export class PaymentsService {
     }
 
     if (!result.approved) {
+      this.metrics.paymentFailedTotal.inc({ provider: this.provider.name, reason: 'declined' });
       await this.prisma.paymentAttempt.update({
         where: { id: attempt.id },
         data: {
@@ -225,6 +231,8 @@ export class PaymentsService {
         'This order was cancelled before the payment could be confirmed. The charge has been reversed.',
       );
     }
+
+    this.metrics.paymentApprovedTotal.inc({ provider: this.provider.name });
 
     const updated = outcome.payment;
     await this.audit.log({
