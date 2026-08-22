@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: marketplace
+          POSTGRES_PASSWORD: marketplace
+          POSTGRES_DB: marketplace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U marketplace -d marketplace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://marketplace:marketplace@localhost:5432/marketplace?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      JWT_REFRESH_TTL_DAYS: 7
+      THROTTLE_TTL_MS: 60000
+      THROTTLE_LIMIT: 60
+      THROTTLE_AUTH_LIMIT: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations (from zero via migrate deploy)
+        run: npx prisma migrate deploy
+
+      - name: Verify migration status
+        run: npx prisma migrate status
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.build.json
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests with coverage
+        run: npm test -- --runInBand --coverage --coverageReporters=text --coverageReporters=json-summary
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      - name: Check coverage thresholds
+        if: always()
+        run: |
+          echo "=== Coverage Summary ==="
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const c = require('./coverage/coverage-summary.json');
+              const t = c.total;
+              const pct = (name, m) => t[name].pct + '%';
+              console.log('Lines:      ' + pct('lines'));
+              console.log('Branches:   ' + pct('branches'));
+              console.log('Functions:  ' + pct('functions'));
+              console.log('Statements: ' + pct('statements'));
+              const fail = t.lines.pct < 50 || t.branches.pct < 50;
+              if (fail) {
+                console.error('Coverage below 50% threshold — CI failing.');
+                process.exit(1);
+              }
+              console.log('Coverage meets 50% threshold.');
+            "
+          else
+            echo "No coverage summary found"
+          fi
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
