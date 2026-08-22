@@ -1,4 +1,5 @@
 import { join } from 'path';
+import { existsSync } from 'fs';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule as EnvConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -66,7 +67,13 @@ import { ThrottlerRedisLike } from './throttler/redis-throttler.storage';
       driver: ApolloDriver,
       inject: [AppConfigService],
       useFactory: (config: AppConfigService) => ({
-        autoSchemaFile: join(process.cwd(), 'src/graphql/schema.gql'),
+        // The compiled Docker image ships only `dist/` and runs as a
+        // non-root user with no write access to `/app`, so it builds the
+        // schema in-memory; only a local ts-node run (where `src/` exists
+        // and is writable) writes the .gql file to disk for editor tooling.
+        autoSchemaFile: existsSync(join(process.cwd(), 'src'))
+          ? join(process.cwd(), 'src/graphql/schema.gql')
+          : true,
         sortSchema: true,
         // Landing page exploration is fine for local/dev but shouldn't hand
         // out the full schema in production — same rationale as gating
