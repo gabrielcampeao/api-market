@@ -145,15 +145,18 @@ jobs:
       - name: Wait for readiness
         id: readiness
         run: |
+          set +e
           for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health/ready || echo 000)
-            if [ "$code" = "200" ]; then
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/health/ready)
+            curl_exit=$?
+            if [ "$curl_exit" = "0" ] && [ "$code" = "200" ]; then
               echo "Readiness OK"
               exit 0
             fi
-            echo "Attempt $i: got HTTP $code, retrying in 5s..."
+            echo "Attempt $i: curl exit=$curl_exit http_code=$code, retrying in 5s..."
             sleep 5
           done
+          set -e
           echo "Service did not become ready in time"
           exit 1
 
