@@ -36,7 +36,7 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://marketplace:marketplace@localhost:5432/marketplace?schema=public&connection_limit=20&pool_timeout=20
+      DATABASE_URL: postgresql://marketplace:marketplace@localhost:5432/marketplace?schema=public&connection_limit=40&pool_timeout=30
       REDIS_URL: redis://localhost:6379
       JWT_ACCESS_SECRET: ci-access-secret
       JWT_ACCESS_TTL: 15m
