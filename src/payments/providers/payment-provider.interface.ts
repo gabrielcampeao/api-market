@@ -3,12 +3,16 @@ import { Decimal } from '@prisma/client/runtime/library';
 export interface PaymentResult {
   approved: boolean;
   providerRef?: string;
+  failureCode?: string;
   message?: string;
 }
 
 export interface PaymentProvider {
   readonly name: string;
-  charge(amount: Decimal, reference: string): Promise<PaymentResult>;
+  // idempotencyKey is Payment.providerIdempotencyKey — the same value is
+  // passed on every retry of the same payment, so a real provider can
+  // dedupe a retried charge instead of capturing the card twice.
+  charge(amount: Decimal, reference: string, idempotencyKey: string): Promise<PaymentResult>;
 }
 
 // DI token: PaymentsService depends on this, not on FakePaymentProvider

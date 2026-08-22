@@ -31,6 +31,17 @@ enum PaymentStatus {
   REFUNDED
 }
 
+// Outcome of one HTTP call to the provider — distinct from PaymentStatus,
+// which is the logical state of the payment as a whole. PENDING here means
+// "call in flight or its result is unknown" (network error/timeout before a
+// response came back), not "hasn't started yet".
+enum PaymentAttemptStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  ERROR
+}
+
 model User {
   id            String    @id @default(uuid()) @db.Uuid
   email         String    @unique
@@ -162,10 +173,43 @@ model Payment {
   // could plausibly take) for manual reconciliation after a crash — see
   // PaymentsService.pay() for what "stuck" actually means here.
   processingAt DateTime?    @map("processing_at")
+  // Sent as the provider's own idempotency key on every charge attempt for
+  // this payment — generated once, reused across retries. This is what
+  // makes a retry after a lost response safe: the provider (e.g. Stripe)
+  // recognizes the repeated key and returns the original charge's result
+  // instead of capturing the card twice. Distinct from the client-facing
+  // Idempotency-Key header, which protects client -> this API; this one
+  // protects this API -> the provider.
+  providerIdempotencyKey String @unique @default(uuid()) @map("provider_idempotency_key")
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order    Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  attempts PaymentAttempt[]
 
   @@map("payments")
+}
+
+// One row per HTTP call this API made to the provider for a given payment.
+// Payment.status is the logical state ("is this order paid"); this table is
+// the audit trail of what actually happened on the wire — needed because a
+// retried payment used to overwrite the same Payment row, losing the record
+// of earlier declines/timeouts entirely.
+model PaymentAttempt {
+  id               String               @id @default(uuid()) @db.Uuid
+  paymentId        String               @map("payment_id") @db.Uuid
+  provider         String
+  providerRef      String?              @map("provider_ref")
+  status           PaymentAttemptStatus @default(PENDING)
+  amount           Decimal              @db.Decimal(10, 2)
+  failureCode      String?              @map("failure_code")
+  failureMessage   String?              @map("failure_message")
+  startedAt        DateTime             @default(now()) @map("started_at")
+  finishedAt       DateTime?            @map("finished_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("payment_attempts")
 }
 
 model AuditLog {

@@ -6,13 +6,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, PaymentStatus, Prisma, Role } from '@prisma/client';
+import { OrderStatus, PaymentAttemptStatus, PaymentStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
 import { RequestContext } from '../common/utils/request-context.util';
 import { AuthenticatedUser } from '../auth/interfaces/auth.types';
 import { PaymentDto } from '../orders/dto/order.dto';
+import { withTimeout } from '../common/utils/with-timeout.util';
 import { PAYMENT_PROVIDER, PaymentProvider } from './providers/payment-provider.interface';
+
+const PROVIDER_TIMEOUT_MS = 15_000;
 
 @Injectable()
 export class PaymentsService {
@@ -74,18 +77,41 @@ export class PaymentsService {
       );
     }
 
+    // One row per provider call, kept even across retries of the same
+    // payment — this is the history a retried payment used to lose entirely
+    // when it just overwrote the same Payment row.
+    const attempt = await this.prisma.paymentAttempt.create({
+      data: {
+        paymentId: payment.id,
+        provider: this.provider.name,
+        amount: order.total,
+        status: PaymentAttemptStatus.PENDING,
+      },
+    });
+
     let result;
     try {
-      result = await this.provider.charge(order.total, order.id);
+      // payment.providerIdempotencyKey is the same value on every attempt
+      // for this payment (generated once at order creation) — a real
+      // provider dedupes a retried charge against it instead of capturing
+      // the card twice, which is what makes reverting to PENDING below safe
+      // to actually retry rather than just "probably fine, hopefully".
+      result = await withTimeout(
+        this.provider.charge(order.total, order.id, payment.providerIdempotencyKey),
+        PROVIDER_TIMEOUT_MS,
+        `Provider "${this.provider.name}" did not respond within ${PROVIDER_TIMEOUT_MS}ms`,
+      );
     } catch (err) {
-      // Provider call failed before returning a result — we don't know if
-      // the gateway actually captured the charge or not (e.g. a timeout on
-      // our side after the provider processed it). Reverting to PENDING
-      // makes the payment retryable, which is correct for a network error
-      // but would double-charge if the provider *did* capture it. Closing
-      // this gap for real needs a provider-side idempotency key on the
-      // charge request so a retry is safe even if the first attempt landed;
-      // FakePaymentProvider doesn't model that, so this is a known limitation.
+      const message = err instanceof Error ? err.message : String(err);
+      await this.prisma.paymentAttempt.update({
+        where: { id: attempt.id },
+        data: { status: PaymentAttemptStatus.ERROR, failureMessage: message, finishedAt: new Date() },
+      });
+      // The provider call failed before returning a result — we don't know
+      // if the gateway captured the charge or not. Reverting to PENDING
+      // makes the payment retryable; that retry reuses the same
+      // providerIdempotencyKey above, so it's safe even if this attempt
+      // *did* land on the provider's side.
       await this.prisma.payment.updateMany({
         where: { id: payment.id, status: PaymentStatus.PROCESSING },
         data: { status: PaymentStatus.PENDING, processingAt: null },
@@ -95,10 +121,7 @@ export class PaymentsService {
         action: 'payment.provider_error',
         entity: 'order',
         entityId: orderId,
-        metadata: {
-          provider: this.provider.name,
-          message: err instanceof Error ? err.message : String(err),
-        } as Prisma.InputJsonValue,
+        metadata: { provider: this.provider.name, message } as Prisma.InputJsonValue,
         ip: ctx.ip,
         userAgent: ctx.userAgent,
       });
@@ -106,6 +129,16 @@ export class PaymentsService {
     }
 
     if (!result.approved) {
+      await this.prisma.paymentAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: PaymentAttemptStatus.DECLINED,
+          providerRef: result.providerRef ?? null,
+          failureCode: result.failureCode ?? null,
+          failureMessage: result.message ?? null,
+          finishedAt: new Date(),
+        },
+      });
       await this.prisma.payment.update({
         where: { id: payment.id },
         data: {
@@ -135,6 +168,15 @@ export class PaymentsService {
     // was cancelled while the provider charge was in flight, the charge is
     // reversed instead of silently overwriting the cancellation.
     const outcome = await this.prisma.$transaction(async (tx) => {
+      await tx.paymentAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: PaymentAttemptStatus.APPROVED,
+          providerRef: result.providerRef ?? null,
+          finishedAt: new Date(),
+        },
+      });
+
       const orderStillPending = await tx.order.updateMany({
         where: { id: orderId, status: OrderStatus.PENDING },
         data: { status: OrderStatus.PAID },
