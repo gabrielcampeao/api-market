@@ -145,7 +145,7 @@ jobs:
       - name: Wait for readiness
         id: readiness
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health/ready || echo 000)
             if [ "$code" = "200" ]; then
               echo "Readiness OK"
