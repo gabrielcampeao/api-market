@@ -212,6 +212,24 @@ model PaymentAttempt {
   @@map("payment_attempts")
 }
 
+// Persisted before processing, not after: if the process dies mid-handling,
+// the event is on disk and the unique (provider, eventId) constraint still
+// does its job on Stripe's retry — we don't reprocess it from scratch, but
+// we also don't silently lose the fact that it arrived.
+model WebhookEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  provider    String
+  eventId     String    @map("event_id")
+  type        String
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  processedAt DateTime? @map("processed_at")
+  error       String?
+
+  @@unique([provider, eventId])
+  @@map("webhook_events")
+}
+
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String?  @map("user_id") @db.Uuid
