@@ -11,6 +11,11 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
+    // Needed for the Stripe webhook route: signature verification is done
+    // against the exact raw request bytes, which the global JSON body
+    // parser would otherwise have already parsed and re-serialized (losing
+    // the byte-for-byte fidelity signature verification needs).
+    rawBody: true,
   });
 
   const config = app.get(AppConfigService);
