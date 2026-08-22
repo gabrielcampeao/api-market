@@ -5,6 +5,8 @@ import { PrismaClient, Role } from '@prisma/client';
 import request from 'supertest';
 import { hashPassword } from '../src/common/utils/password.util';
 import { AppModule } from '../src/app.module';
+import { PAYMENT_PROVIDER, PaymentProvider } from '../src/payments/providers/payment-provider.interface';
+import Stripe from 'stripe';
 import { AppConfigService } from '../src/config/app-config.service';
 import { LoggingService } from '../src/logging/logging.service';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
@@ -77,7 +79,12 @@ describe('Marketplace API (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    // rawBody must be enabled here too, not just in main.ts's bootstrap() —
+    // this test app is created independently via Test.createTestingModule,
+    // so it doesn't inherit main.ts's NestFactory.create options. Without
+    // it, req.rawBody is always undefined and the Stripe webhook signature
+    // check fails on every request, signed correctly or not.
+    app = moduleFixture.createNestApplication({ rawBody: true });
     jwtService = app.get(JwtService);
     const config = app.get(AppConfigService);
     api = `/${config.apiPrefix}`;
@@ -773,30 +780,30 @@ describe('Marketplace API (e2e)', () => {
       expect(Number(stockRes.body.stock)).toBe(0);
     });
 
-    it('fifty concurrent payment attempts on the same order settle exactly once', async () => {
+    it('a hundred concurrent payment attempts on the same order settle exactly once', async () => {
       const productRes = await http()
         .post(`${api}/products`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name: 'Fifty-Way Payment Product', price: 12, stock: 10 })
+        .send({ name: 'Hundred-Way Payment Product', price: 12, stock: 10 })
         .expect(201);
-      const fiftyProductId = productRes.body.id;
+      const hundredProductId = productRes.body.id;
 
       await http()
         .post(`${api}/cart/items`)
         .set('Authorization', `Bearer ${userToken}`)
-        .send({ productId: fiftyProductId, quantity: 1 })
+        .send({ productId: hundredProductId, quantity: 1 })
         .expect(201);
 
       const checkoutRes = await http()
         .post(`${api}/orders/checkout`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(201);
-      const fiftyOrderId = checkoutRes.body.id;
+      const hundredOrderId = checkoutRes.body.id;
 
       const responses = await Promise.all(
-        Array.from({ length: 50 }, () =>
+        Array.from({ length: 100 }, () =>
           http()
-            .post(`${api}/orders/${fiftyOrderId}/pay`)
+            .post(`${api}/orders/${hundredOrderId}/pay`)
             .set('Authorization', `Bearer ${userToken}`),
         ),
       );
@@ -812,10 +819,10 @@ describe('Marketplace API (e2e)', () => {
       // double-charge or a double 2xx — so the assertion accepts either.
       const rejected = responses.filter((r) => r.status === 409 || r.status === 400);
       expect(succeeded.length).toBe(1);
-      expect(rejected.length).toBe(49);
+      expect(rejected.length).toBe(99);
 
       const payment = await http()
-        .get(`${api}/orders/${fiftyOrderId}/payment`)
+        .get(`${api}/orders/${hundredOrderId}/payment`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(200);
       expect(payment.body.status).toBe('APPROVED');
@@ -857,6 +864,183 @@ describe('Marketplace API (e2e)', () => {
         .get(`${api}/products/${raceProductId}`)
         .expect(200);
       expect(Number(stockRes.body.stock)).toBe(0);
+    });
+  });
+
+  describe('Payment reconciliation', () => {
+    it('recovers a payment stuck in PROCESSING after the provider actually approved it', async () => {
+      // Reproduces the exact crash window documented in README.md's
+      // Limitations section: the provider call succeeds, but the process
+      // dies before the follow-up transaction records APPROVED — the
+      // payment is left at PROCESSING forever without reconciliation.
+      await http()
+        .post(`${api}/products`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Reconciliation Product', price: 20, stock: 5 })
+        .expect(201);
+      const productRes = await http()
+        .get(`${api}/products?search=Reconciliation+Product`)
+        .expect(200);
+      const reconProductId = productRes.body.items[0].id;
+
+      await http()
+        .post(`${api}/cart/items`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ productId: reconProductId, quantity: 1 })
+        .expect(201);
+      const checkoutRes = await http()
+        .post(`${api}/orders/checkout`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(201);
+      const reconOrderId = checkoutRes.body.id;
+
+      const payment = await prisma.payment.findUniqueOrThrow({ where: { orderId: reconOrderId } });
+
+      // Simulate "the provider call succeeded" by calling the real provider
+      // directly — bypassing PaymentsService entirely, the same way a crash
+      // right after PaymentsService's own provider.charge() call would leave
+      // things: the charge happened, but nothing about it was recorded here.
+      const provider = app.get<PaymentProvider>(PAYMENT_PROVIDER);
+      const chargeResult = await provider.charge(
+        payment.amount,
+        reconOrderId,
+        payment.providerIdempotencyKey,
+      );
+      expect(chargeResult.approved).toBe(true);
+
+      // Simulate "the crash": the payment is claimed (PROCESSING) with a
+      // stale timestamp, and has a PaymentAttempt row PaymentsService.pay()
+      // would have created before calling the provider — but nothing ever
+      // updated either of them with the outcome above.
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'PROCESSING', processingAt: new Date(Date.now() - 10 * 60 * 1000) },
+      });
+      await prisma.paymentAttempt.create({
+        data: {
+          paymentId: payment.id,
+          provider: provider.name,
+          amount: payment.amount,
+          status: 'PENDING',
+        },
+      });
+
+      // Nothing about this order/payment looks resolvable from local state
+      // alone — the point of reconciliation is that it asks the provider.
+      const reconcileRes = await http()
+        .post(`${api}/payments/reconcile`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(201);
+      expect(reconcileRes.body.approved).toBeGreaterThanOrEqual(1);
+
+      const paymentAfter = await http()
+        .get(`${api}/orders/${reconOrderId}/payment`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      expect(paymentAfter.body.status).toBe('APPROVED');
+      expect(paymentAfter.body.providerRef).toBe(chargeResult.providerRef);
+
+      const orderAfter = await http()
+        .get(`${api}/orders/${reconOrderId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      expect(orderAfter.body.status).toBe('PAID');
+    });
+  });
+
+  describe('Stripe webhook', () => {
+    const signPayload = (payload: string) => {
+      // The secret used to sign here just has to match STRIPE_WEBHOOK_SECRET
+      // in .env — Stripe's own key isn't involved in generating this test
+      // signature, only in the real charge that gets referenced below.
+      return new Stripe('sk_test_dummy_for_signing').webhooks.generateTestHeaderString({
+        payload,
+        secret: process.env.STRIPE_WEBHOOK_SECRET!,
+      });
+    };
+
+    it('sending the same payment_intent.succeeded event 20 times settles the payment exactly once', async () => {
+      await http()
+        .post(`${api}/products`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Webhook Product', price: 15, stock: 5 })
+        .expect(201);
+      const productRes = await http().get(`${api}/products?search=Webhook+Product`).expect(200);
+      const webhookProductId = productRes.body.items[0].id;
+
+      await http()
+        .post(`${api}/cart/items`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ productId: webhookProductId, quantity: 1 })
+        .expect(201);
+      const checkoutRes = await http()
+        .post(`${api}/orders/checkout`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(201);
+      const webhookOrderId = checkoutRes.body.id;
+
+      const payment = await prisma.payment.findUniqueOrThrow({ where: { orderId: webhookOrderId } });
+      const provider = app.get<PaymentProvider>(PAYMENT_PROVIDER);
+      const chargeResult = await provider.charge(payment.amount, webhookOrderId, payment.providerIdempotencyKey);
+
+      // Same "crash before recording the outcome" setup as the
+      // reconciliation test — this time the recovery path under test is the
+      // webhook, not the polling reconciliation job.
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'PROCESSING' },
+      });
+      await prisma.paymentAttempt.create({
+        data: { paymentId: payment.id, provider: provider.name, amount: payment.amount, status: 'PENDING' },
+      });
+
+      const event = {
+        id: `evt_test_${payment.id}`,
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: chargeResult.providerRef,
+            last_payment_error: null,
+            metadata: { orderId: webhookOrderId },
+          },
+        },
+      };
+      const payload = JSON.stringify(event);
+      const signature = signPayload(payload);
+
+      const responses = await Promise.all(
+        Array.from({ length: 20 }, () =>
+          http()
+            .post(`${api}/webhooks/stripe`)
+            .set('stripe-signature', signature)
+            .set('Content-Type', 'application/json')
+            .send(payload),
+        ),
+      );
+
+      expect(responses.every((r) => r.status === 200)).toBe(true);
+
+      const paymentAfter = await http()
+        .get(`${api}/orders/${webhookOrderId}/payment`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      expect(paymentAfter.body.status).toBe('APPROVED');
+      expect(paymentAfter.body.providerRef).toBe(chargeResult.providerRef);
+
+      const orderAfter = await http()
+        .get(`${api}/orders/${webhookOrderId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      expect(orderAfter.body.status).toBe('PAID');
+    });
+
+    it('rejects a webhook with an invalid signature', async () => {
+      await http()
+        .post(`${api}/webhooks/stripe`)
+        .set('stripe-signature', 't=1,v1=not-a-real-signature')
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify({ id: 'evt_bad', type: 'payment_intent.succeeded' }))
+        .expect(400);
     });
   });
 });
