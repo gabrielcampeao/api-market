@@ -21,7 +21,7 @@ describe('IdempotencyService', () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
-  } as any;
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();

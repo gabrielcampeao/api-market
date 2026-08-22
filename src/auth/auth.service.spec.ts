@@ -20,7 +20,7 @@ const ctx: RequestContext = { ip: '127.0.0.1', userAgent: 'jest' };
 describe('AuthService', () => {
   let service: AuthService;
 
-  const prismaMock: any = {
+  const txMock = {
     user: {
       findUnique: jest.fn(),
       create: jest.fn(),
@@ -39,15 +39,15 @@ describe('AuthService', () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
-    $transaction: jest.fn((arg: unknown): any => {
+  };
+
+  const prismaMock = {
+    ...txMock,
+    $transaction: jest.fn((arg: unknown) => {
       if (Array.isArray(arg)) {
         return Promise.all(arg as Promise<unknown>[]);
       }
-      return (arg as (tx: typeof prismaMock) => Promise<unknown>)({
-        user: prismaMock.user,
-        refreshToken: prismaMock.refreshToken,
-        passwordResetToken: prismaMock.passwordResetToken,
-      });
+      return (arg as (tx: typeof txMock) => Promise<unknown>)(txMock);
     }),
   };
 
