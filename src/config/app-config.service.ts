@@ -23,6 +23,8 @@ export class AppConfigService {
     authLimit: number;
   };
   readonly trustProxy: boolean;
+  readonly stripeSecretKey: string | undefined;
+  readonly stripeWebhookSecret: string | undefined;
 
   constructor(config: ConfigService<EnvConfig, true>) {
     const env = config.get('NODE_ENV', { infer: true });
@@ -49,5 +51,7 @@ export class AppConfigService {
       authLimit: config.get('THROTTLE_AUTH_LIMIT', { infer: true }),
     };
     this.trustProxy = config.get('TRUST_PROXY', { infer: true });
+    this.stripeSecretKey = config.get('STRIPE_SECRET_KEY', { infer: true });
+    this.stripeWebhookSecret = config.get('STRIPE_WEBHOOK_SECRET', { infer: true });
   }
 }
