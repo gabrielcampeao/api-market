@@ -197,32 +197,56 @@ export class StripeWebhookService {
     }
 
     const order = await this.prisma.order.findUniqueOrThrow({ where: { id: payment.orderId } });
-    await this.prisma.$transaction(async (tx) => {
+    // Claim the payment first, before touching the order at all: a stale
+    // "succeeded" event arriving after the payment already settled to
+    // FAILED by another path (or is mid-claim elsewhere) must not flip the
+    // order to PAID while leaving the payment record itself untouched —
+    // that was a real bug here (order.updateMany used to run unconditionally
+    // before this check, so a stale event on an already-FAILED payment
+    // marked the order PAID with the payment still FAILED). Same
+    // claim-before-anything-else fix as PaymentReconciliationService.
+    const settlement = await this.prisma.$transaction(async (tx) => {
+      // Same out-of-order-delivery carve-out as the decline branch above —
+      // PENDING is a legal source here only because of external webhook
+      // timing, not a domain-level transition.
+      const claim = await tx.payment.updateMany({
+        where: { id: payment.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.PROCESSING] } },
+        data: { status: PaymentStatus.APPROVED, providerRef: intent.id, paidAt: new Date(), processingAt: null },
+      });
+      if (claim.count === 0) {
+        return { claimed: false, orderCancelledDuringPayment: false };
+      }
+
+      const orderStillPending = await tx.order.updateMany({
+        where: { id: order.id, status: OrderStatus.PENDING },
+        data: { status: OrderStatus.PAID },
+      });
+
+      if (orderStillPending.count === 0) {
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: { status: PaymentStatus.REFUNDED },
+        });
+      }
+
       if (attempt) {
         await tx.paymentAttempt.update({
           where: { id: attempt.id },
           data: { status: PaymentAttemptStatus.APPROVED, providerRef: intent.id, finishedAt: new Date() },
         });
       }
-      const orderStillPending = await tx.order.updateMany({
-        where: { id: order.id, status: OrderStatus.PENDING },
-        data: { status: OrderStatus.PAID },
-      });
-      // Same out-of-order-delivery carve-out as the decline branch above —
-      // PENDING is a legal source here only because of external webhook
-      // timing, not a domain-level transition.
-      await tx.payment.updateMany({
-        where: { id: payment.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.PROCESSING] } },
-        data: {
-          status: orderStillPending.count > 0 ? PaymentStatus.APPROVED : PaymentStatus.REFUNDED,
-          providerRef: intent.id,
-          paidAt: new Date(),
-          processingAt: null,
-        },
-      });
+
+      return { claimed: true, orderCancelledDuringPayment: orderStillPending.count === 0 };
     });
+
+    if (!settlement.claimed) {
+      return;
+    }
+
     await this.audit.log({
-      action: 'payment.webhook_approved',
+      action: settlement.orderCancelledDuringPayment
+        ? 'payment.webhook_reversed_order_cancelled'
+        : 'payment.webhook_approved',
       entity: 'order',
       entityId: payment.orderId,
       metadata: { provider: PROVIDER, providerRef: intent.id } as Prisma.InputJsonValue,

@@ -10,6 +10,7 @@ import Stripe from 'stripe';
 import { AppConfigService } from '../src/config/app-config.service';
 import { LoggingService } from '../src/logging/logging.service';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
+import { PaymentReconciliationService } from '../src/payments/payment-reconciliation.service';
 
 const prisma = new PrismaClient();
 
@@ -1041,6 +1042,92 @@ describe('Marketplace API (e2e)', () => {
         .set('Content-Type', 'application/json')
         .send(JSON.stringify({ id: 'evt_bad', type: 'payment_intent.succeeded' }))
         .expect(400);
+    });
+
+    it('settles a stuck payment exactly once when the webhook and reconciliation race it concurrently', async () => {
+      await http()
+        .post(`${api}/products`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Race Product', price: 12, stock: 5 })
+        .expect(201);
+      const productRes = await http().get(`${api}/products?search=Race+Product`).expect(200);
+      const raceProductId = productRes.body.items[0].id;
+
+      await http()
+        .post(`${api}/cart/items`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ productId: raceProductId, quantity: 1 })
+        .expect(201);
+      const checkoutRes = await http()
+        .post(`${api}/orders/checkout`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(201);
+      const raceOrderId = checkoutRes.body.id;
+
+      const payment = await prisma.payment.findUniqueOrThrow({ where: { orderId: raceOrderId } });
+      const provider = app.get<PaymentProvider>(PAYMENT_PROVIDER);
+      const chargeResult = await provider.charge(payment.amount, raceOrderId, payment.providerIdempotencyKey);
+
+      // Same "crash before recording the outcome" setup as the other
+      // recovery tests — stale enough to be picked up by reconciliation's
+      // default staleness cutoff.
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'PROCESSING', processingAt: new Date(Date.now() - 10 * 60 * 1000) },
+      });
+      await prisma.paymentAttempt.create({
+        data: { paymentId: payment.id, provider: provider.name, amount: payment.amount, status: 'PENDING' },
+      });
+
+      const event = {
+        id: `evt_race_${payment.id}`,
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: chargeResult.providerRef,
+            last_payment_error: null,
+            metadata: { orderId: raceOrderId },
+          },
+        },
+      };
+      const payload = JSON.stringify(event);
+      const signature = signPayload(payload);
+      const reconciliation = app.get(PaymentReconciliationService);
+
+      // Both paths independently believe they're the one recovering this
+      // payment — the webhook via the event above, reconciliation via its
+      // own poll of stuck PROCESSING payments. Only one may actually win the
+      // claim; the other must back off without double-logging or
+      // double-paying the order.
+      await Promise.all([
+        http()
+          .post(`${api}/webhooks/stripe`)
+          .set('stripe-signature', signature)
+          .set('Content-Type', 'application/json')
+          .send(payload),
+        reconciliation.reconcileStuckPayments(),
+      ]);
+
+      const paymentAfter = await http()
+        .get(`${api}/orders/${raceOrderId}/payment`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      expect(paymentAfter.body.status).toBe('APPROVED');
+      expect(paymentAfter.body.providerRef).toBe(chargeResult.providerRef);
+
+      const orderAfter = await http()
+        .get(`${api}/orders/${raceOrderId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+      expect(orderAfter.body.status).toBe('PAID');
+
+      const approvalLogs = await prisma.auditLog.findMany({
+        where: {
+          entityId: raceOrderId,
+          action: { in: ['payment.webhook_approved', 'payment.reconciled_approved'] },
+        },
+      });
+      expect(approvalLogs).toHaveLength(1);
     });
   });
 });
