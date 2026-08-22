@@ -22,6 +22,7 @@ import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { LogsModule } from './logs/logs.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import { GraphqlApiModule } from './graphql/graphql-api.module';
 import { IdempotencyModule } from './idempotency/idempotency.module';
 import { IdempotencyInterceptor } from './idempotency/idempotency.interceptor';
@@ -120,6 +121,7 @@ import { ThrottlerRedisLike } from './throttler/redis-throttler.storage';
     LogsModule,
     GraphqlApiModule,
     IdempotencyModule,
+    WebhooksModule,
   ],
   controllers: [HealthController],
   providers: [
