@@ -36,7 +36,7 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://marketplace:marketplace@localhost:5432/marketplace?schema=public
+      DATABASE_URL: postgresql://marketplace:marketplace@localhost:5432/marketplace?schema=public&connection_limit=20&pool_timeout=20
       REDIS_URL: redis://localhost:6379
       JWT_ACCESS_SECRET: ci-access-secret
       JWT_ACCESS_TTL: 15m
@@ -81,16 +81,23 @@ jobs:
       - name: Unit tests with coverage
         run: npm test -- --runInBand --coverage --coverageReporters=text --coverageReporters=json-summary
 
-      - name: E2E tests
-        run: npm run test:e2e
+      - name: E2E tests with coverage
+        run: |
+          THROTTLE_LIMIT=1000 npx jest --config ./test/jest-e2e.json --runInBand \
+            --coverage --coverageDirectory=coverage-e2e \
+            --collectCoverageFrom='src/**/*.(t|j)s'
+
+      - name: Merge unit + e2e coverage
+        if: always()
+        run: node scripts/merge-coverage.js coverage coverage-e2e coverage-merged
 
       - name: Check coverage thresholds
         if: always()
         run: |
-          echo "=== Coverage Summary ==="
-          if [ -f coverage/coverage-summary.json ]; then
+          echo "=== Coverage Summary (unit + e2e merged) ==="
+          if [ -f coverage-merged/coverage-summary.json ]; then
             node -e "
-              const c = require('./coverage/coverage-summary.json');
+              const c = require('./coverage-merged/coverage-summary.json');
               const t = c.total;
               const pct = (name, m) => t[name].pct + '%';
               console.log('Lines:      ' + pct('lines'));
@@ -113,7 +120,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: coverage/
+          path: |
+            coverage/
+            coverage-e2e/
+            coverage-merged/
           retention-days: 7
 
   deploy:
