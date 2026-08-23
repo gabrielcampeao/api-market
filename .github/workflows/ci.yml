@@ -101,7 +101,7 @@ jobs:
           echo "=== Coverage Summary (unit + e2e merged) ==="
           if [ -f coverage-merged/coverage-summary.json ]; then
             node -e "
-              const THRESHOLD = 50;
+              const THRESHOLD = 55;
               const c = require('./coverage-merged/coverage-summary.json');
               const t = c.total;
               const pct = (name) => t[name].pct + '%';
