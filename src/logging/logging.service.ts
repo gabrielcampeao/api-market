@@ -11,6 +11,33 @@ const consoleFormat = printf(({ level, message, timestamp: ts, context }) => {
   return `${ts} ${level.toUpperCase()}${ctx}: ${message}`;
 });
 
+const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
+  {
+    pattern: /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g,
+    replacement: '[REDACTED_JWT]',
+  },
+  {
+    pattern: /\bsk_(?:test|live)_[A-Za-z0-9]{8,}\b/g,
+    replacement: '[REDACTED_STRIPE_SECRET]',
+  },
+  {
+    pattern: /\brk_(?:test|live)_[A-Za-z0-9]{8,}\b/g,
+    replacement: '[REDACTED_STRIPE_SECRET]',
+  },
+  {
+    pattern: /\bwhsec_[A-Za-z0-9]{8,}\b/g,
+    replacement: '[REDACTED_STRIPE_WEBHOOK_SECRET]',
+  },
+  {
+    pattern: /\brefresh[_ -]?token\b[:=]\s*[^\s,;]+/gi,
+    replacement: 'refresh token=[REDACTED]',
+  },
+  {
+    pattern: /\bpassword\b[:=]\s*[^\s,;]+/gi,
+    replacement: 'password=[REDACTED]',
+  },
+];
+
 @Injectable()
 export class LoggingService implements LoggerService {
   private readonly logger: winston.Logger;
@@ -76,8 +103,16 @@ export class LoggingService implements LoggerService {
 
   private formatMessage(message: unknown, optionalParams: unknown[]): string {
     if (optionalParams.length === 0) {
-      return String(message);
+      return this.redact(String(message));
     }
-    return `${String(message)} ${optionalParams.join(' ')}`;
+    return this.redact(`${String(message)} ${optionalParams.join(' ')}`);
+  }
+
+  private redact(message: string): string {
+    let result = message;
+    for (const { pattern, replacement } of SECRET_PATTERNS) {
+      result = result.replace(pattern, replacement);
+    }
+    return result;
   }
 }

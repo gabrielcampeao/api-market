@@ -59,6 +59,14 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     }
   }
 
+  const stripeSecretKey = config.STRIPE_SECRET_KEY as string | undefined;
+  const stripeWebhookSecret = config.STRIPE_WEBHOOK_SECRET as string | undefined;
+  if (stripeSecretKey && !stripeWebhookSecret) {
+    throw new Error(
+      'STRIPE_WEBHOOK_SECRET must be set when STRIPE_SECRET_KEY is configured.',
+    );
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: toInt(config.PORT, 3000),
@@ -84,7 +92,7 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     // (same pattern as ThrottlerStorageFactory falling back to in-memory
     // when Redis is unreachable — the app stays usable without the real
     // dependency configured).
-    STRIPE_SECRET_KEY: config.STRIPE_SECRET_KEY as string | undefined,
-    STRIPE_WEBHOOK_SECRET: config.STRIPE_WEBHOOK_SECRET as string | undefined,
+    STRIPE_SECRET_KEY: stripeSecretKey,
+    STRIPE_WEBHOOK_SECRET: stripeWebhookSecret,
   };
 }
