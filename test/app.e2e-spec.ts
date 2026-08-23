@@ -412,6 +412,14 @@ describe('Marketplace API (e2e)', () => {
         .set('Authorization', `Bearer ${other.body.accessToken}`)
         .expect(403);
     });
+
+    it('rejects accessing another user payment', async () => {
+      const other = await login('other@test.dev', 'OtherPass1!').expect(200);
+      await http()
+        .get(`${api}/orders/${orderId}/payment`)
+        .set('Authorization', `Bearer ${other.body.accessToken}`)
+        .expect(403);
+    });
   });
 
   // ----------------------------------------------------------------
@@ -475,6 +483,33 @@ describe('Marketplace API (e2e)', () => {
     it('forbids a regular user from reading audit logs', async () => {
       await http()
         .get(`${api}/logs`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('forbids a regular user from advancing an order status', async () => {
+      await http()
+        .patch(`${api}/orders/${orderId}/status`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ status: 'SHIPPED' })
+        .expect(403);
+    });
+
+    it('forbids a regular user from triggering reconciliation', async () => {
+      await http()
+        .post(`${api}/payments/reconcile`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(403);
+    });
+
+    it('forbids a regular user from reading another user by id', async () => {
+      const adminProfile = await http()
+        .get(`${api}/users/me`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      await http()
+        .get(`${api}/users/${adminProfile.body.id}`)
         .set('Authorization', `Bearer ${userToken}`)
         .expect(403);
     });
@@ -571,6 +606,15 @@ describe('Marketplace API (e2e)', () => {
       const other = await login('other@test.dev', 'OtherPass1!').expect(200);
       await http()
         .post(`${api}/orders/${pendingOrderId}/pay`)
+        .set('Authorization', `Bearer ${other.body.accessToken}`)
+        .expect(403);
+    });
+
+    it('rejects cancelling another user order', async () => {
+      // other@test.dev owns no orders; pendingOrderId is still PENDING here.
+      const other = await login('other@test.dev', 'OtherPass1!').expect(200);
+      await http()
+        .post(`${api}/orders/${pendingOrderId}/cancel`)
         .set('Authorization', `Bearer ${other.body.accessToken}`)
         .expect(403);
     });
