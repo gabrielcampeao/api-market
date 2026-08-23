@@ -84,20 +84,17 @@ import { ThrottlerRedisLike } from './throttler/redis-throttler.storage';
         // out the full schema in production — same rationale as gating
         // Swagger in main.ts.
         introspection: !config.isProduction,
-        // `graphiql: true`'s built-in landing page loads React/GraphiQL from
-        // unpkg.com — breaks silently (blank, unstyled page) behind a
-        // corporate firewall, an ad blocker, or offline. The dev landing page
-        // is served instead by localGraphiqlLandingPage() in main.ts, an
-        // Express middleware registered ahead of this module's own /graphql
-        // route, using assets vendored under public/graphiql-vendor/.
-        // (A custom Apollo plugin was tried first, but @nestjs/apollo always
-        // injects its own landing-page plugin regardless of this `graphiql`
-        // setting, and Apollo Server hard-errors when two plugins implement
-        // renderLandingPage — there's no supported way to override it via
-        // ApolloDriverConfig. Apollo Sandbox was tried even earlier, but its
-        // plugin import from `@apollo/server/plugin/landingPage/default`
-        // triggers a dual cjs/esm type-resolution conflict under ts-jest
-        // that broke the e2e suite's typecheck.)
+        // The dev landing page (Apollo Sandbox) is served instead by
+        // apolloSandboxLandingPage() in main.ts, an Express middleware
+        // registered ahead of this module's own /graphql route. Two things
+        // rule out doing this through ApolloDriverConfig directly:
+        // @nestjs/apollo always injects its own landing-page plugin
+        // (graphiql/playground/disabled) regardless of these settings, and
+        // Apollo Server hard-errors when two plugins implement
+        // renderLandingPage; and importing the Sandbox plugin from
+        // `@apollo/server/plugin/landingPage/default` triggers a dual
+        // cjs/esm type-resolution conflict under ts-jest that broke the e2e
+        // suite's typecheck.
         graphiql: false,
         playground: false,
         context: ({ req, res }: { req: unknown; res: unknown }) => ({ req, res }),

@@ -25,10 +25,6 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY --from=build /app/dist ./dist
-# Vendored GraphiQL landing page assets (see main.ts / app.module.ts) — only
-# served when NODE_ENV != production, but the same image runs both, so they
-# need to be present regardless.
-COPY public ./public
 
 USER app
 EXPOSE 3000
