@@ -22,7 +22,7 @@
     "test": "jest --config ./test/jest-unit.json",
     "test:watch": "jest --config ./test/jest-unit.json --watch",
     "test:cov": "jest --config ./test/jest-unit.json --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand"
+    "test:e2e": "THROTTLE_LIMIT=1000 jest --config ./test/jest-e2e.json --runInBand"
   },
   "dependencies": {
     "@apollo/server": "^5.5.1",
@@ -64,6 +64,9 @@
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.1.7",
     "jest": "^30.0.0",
     "prettier": "^3.0.0",
     "prisma": "^6.6.0",
