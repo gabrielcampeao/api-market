@@ -7,8 +7,6 @@ contactPoints:
       - uid: ops-email-receiver
         type: email
         settings:
-          # Substituted from ALERT_NOTIFY_EMAIL at container start (see the
-          # grafana service's entrypoint in docker-compose.prod.yml) so a
-          # personal address never gets committed to a public repo.
+          # Injected from ALERT_NOTIFY_EMAIL at container start (see grafana entrypoint in docker-compose.prod.yml).
           addresses: __ALERT_EMAIL__
           singleEmail: true

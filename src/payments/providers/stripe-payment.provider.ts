@@ -5,26 +5,19 @@ import { PaymentProvider, PaymentResult, PaymentStatusResult } from './payment-p
 import { AppConfigService } from '../../config/app-config.service';
 import { MetricsService } from '../../metrics/metrics.service';
 
-// No real checkout UI collects a card in this project — orders are paid
-// through a single backend endpoint, not a client-side Stripe Elements
-// form. Using Stripe's dedicated test PaymentMethod tokens (rather than a
-// real card) lets charge() stay a single synchronous call, matching the
-// existing PaymentProvider contract, without building a frontend just to
-// exercise the gateway. `sk_live_` keys reject these tokens outright, so
-// this only works in Stripe test mode by construction.
+// No checkout UI collects a card here — orders are paid through a single
+// backend endpoint. Stripe's test PaymentMethod token keeps charge() a single
+// synchronous call; `sk_live_` keys reject it outright, so this is test-mode only.
 const TEST_PAYMENT_METHOD = 'pm_card_visa';
 
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
   readonly name = 'stripe';
   private readonly logger = new Logger(StripePaymentProvider.name);
-  // Constructed even when STRIPE_SECRET_KEY is unset — Nest instantiates
-  // every provider in PaymentsModule regardless of which one the
-  // PAYMENT_PROVIDER factory ends up selecting (see payments.module.ts), so
-  // this can't throw at construction time or the app would fail to boot
-  // with the Fake provider active. `stripe` stays undefined instead, and
-  // charge()/checkStatus() throw only if this provider is actually called —
-  // which the factory guarantees won't happen without a key.
+  // Nest instantiates every provider in PaymentsModule regardless of which
+  // one PAYMENT_PROVIDER selects, so this can't throw at construction when
+  // unset — `stripe` stays undefined and charge()/checkStatus() throw only
+  // if actually called.
   private readonly stripe: Stripe | undefined;
 
   constructor(
@@ -41,11 +34,9 @@ export class StripePaymentProvider implements PaymentProvider {
     return this.stripe;
   }
 
-  // Both charge() and checkStatus() are the same PaymentIntent-create call
-  // (see checkStatus's own comment for why re-sending it is safe) — this is
-  // the one place that actually crosses the network, so it's the one place
-  // stripe_request_duration_seconds/stripe_errors_total get recorded,
-  // labeled by which caller made the request.
+  // charge() and checkStatus() both hit this same PaymentIntent-create call
+  // (see checkStatus for why re-sending is safe) — the one network crossing,
+  // so it's the one place the Stripe request metrics get recorded.
   private async createPaymentIntent(
     operation: 'charge' | 'checkStatus',
     amount: Decimal,
@@ -70,10 +61,8 @@ export class StripePaymentProvider implements PaymentProvider {
       return intent;
     } catch (err) {
       stop();
-      // A card decline is Stripe's normal response, not a failure of the
-      // call itself — only count genuine transport/API errors here, the
-      // same distinction PaymentsService's payment_failed_total draws
-      // between a decline and a provider error.
+      // Card decline is a normal response, not a call failure — only count
+      // genuine transport/API errors, same distinction as payment_failed_total.
       if (!(err instanceof Stripe.errors.StripeCardError)) {
         this.metrics.stripeErrorsTotal.inc({ operation });
       }
@@ -87,12 +76,9 @@ export class StripePaymentProvider implements PaymentProvider {
       return this.toResult(intent);
     } catch (err) {
       if (err instanceof Stripe.errors.StripeCardError) {
-        // A card decline is Stripe's normal response, not a failure of the
-        // call itself — surface it as a declined PaymentResult like
-        // FakePaymentProvider does, not as a thrown error. Everything else
-        // (network error, 5xx, timeout) is a genuine "we don't know what
-        // happened" case and must propagate so PaymentsService treats it as
-        // such (revert to PENDING, not FAILED).
+        // Surface as a declined PaymentResult, like FakePaymentProvider —
+        // everything else (network/5xx/timeout) propagates so PaymentsService
+        // reverts to PENDING, not FAILED.
         return {
           approved: false,
           providerRef: err.payment_intent?.id,
@@ -111,10 +97,8 @@ export class StripePaymentProvider implements PaymentProvider {
     idempotencyKey: string,
   ): Promise<PaymentStatusResult> {
     try {
-      // Re-sending the exact same request Stripe already saw this
-      // idempotency key for returns the original PaymentIntent instead of
-      // creating a new charge — this is a status check, not a second charge,
-      // as long as amount/reference/idempotencyKey all match the original.
+      // Re-sending the same idempotency key returns the original PaymentIntent
+      // instead of creating a new charge — a status check, not a second charge.
       const intent = await this.createPaymentIntent('checkStatus', amount, reference, idempotencyKey);
       const result = this.toResult(intent);
       return result.approved
@@ -134,9 +118,8 @@ export class StripePaymentProvider implements PaymentProvider {
           message: err.message,
         };
       }
-      // Network/5xx/timeout while reconciling: genuinely unknown, not a
-      // decline — the reconciliation job leaves the payment PROCESSING and
-      // tries again on its next run instead of guessing.
+      // Genuinely unknown, not a decline — reconciliation leaves it
+      // PROCESSING and retries next run.
       this.logger.warn(
         `Stripe checkStatus failed, treating as unknown: ${err instanceof Error ? err.message : String(err)}`,
       );
