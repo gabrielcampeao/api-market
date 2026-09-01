@@ -83,7 +83,7 @@ jobs:
 
       - name: E2E tests with coverage
         run: |
-          THROTTLE_LIMIT=1000 npx jest --config ./test/jest-e2e.json --runInBand \
+          THROTTLE_LIMIT=100000 npx jest --config ./test/jest-e2e.json --runInBand \
             --coverage --coverageDirectory=coverage-e2e \
             --collectCoverageFrom='src/**/*.(t|j)s'
 
