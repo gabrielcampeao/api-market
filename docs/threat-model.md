@@ -2,7 +2,7 @@
 
 This API is intentionally opinionated about a small set of realistic threats. The goal is not to claim perfect security; it's to make the remaining risk visible and to keep the mitigations concrete.
 
-## Primary Threats
+## Primary threats
 
 | Threat | Mitigation | Residual risk |
 |---|---|---|
@@ -14,7 +14,7 @@ This API is intentionally opinionated about a small set of realistic threats. Th
 | Webhook forgery | Stripe signature verification against raw request bytes, rawBody enabled in bootstrap | Misconfigured webhook secret still breaks delivery |
 | Dependency compromise | Dependency scanning in CI, locked runtime versions, emergency patch/release process | A zero-day still needs human response |
 
-## Operational Guardrails
+## Operational guardrails
 
 - Rotate any exposed live secret immediately, even if it never reached git history.
 - Keep GitHub secret scanning and push protection enabled on the repository.
@@ -33,7 +33,7 @@ Dependabot is configured (`.github/dependabot.yml`), and merges to `main` are
 done by convention (PR review) rather than a server-enforced rule. Revisit if
 the repo goes public or the account upgrades to Pro.
 
-## Evidence In This Repo
+## Evidence in this repo
 
 - `src/logging/logging.service.ts` redacts common secret formats before messages reach Winston.
 - `src/config/env.validation.ts` rejects missing secrets and weak production JWT values at startup.
