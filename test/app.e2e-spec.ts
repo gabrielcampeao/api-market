@@ -802,11 +802,17 @@ describe('Marketplace API (e2e)', () => {
       );
 
       const succeeded = responses.filter((r) => r.status === 201);
-      const conflicted = responses.filter((r) => r.status === 409);
-      // Only one request can win the PENDING->PROCESSING claim; every other
-      // one observes a non-claimable status and gets 409, never a 2xx.
+      // Only one request can win the PENDING->PROCESSING claim. Every other
+      // request gets rejected, never a 2xx — but which rejection depends on
+      // when it reads the payment row relative to the winner's write: most
+      // land mid-claim and see PROCESSING (409, ConflictException), but a
+      // request that reads after the winner has already reached APPROVED
+      // sees that terminal state directly and gets 400 (BadRequestException,
+      // "already paid") instead. Both are equally correct — neither is a
+      // double-charge or a double 2xx — so the assertion accepts either.
+      const rejected = responses.filter((r) => r.status === 409 || r.status === 400);
       expect(succeeded.length).toBe(1);
-      expect(conflicted.length).toBe(49);
+      expect(rejected.length).toBe(49);
 
       const payment = await http()
         .get(`${api}/orders/${fiftyOrderId}/payment`)
