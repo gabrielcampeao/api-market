@@ -23,9 +23,7 @@ export class ProductsResolver {
 
   @Public()
   @Query(() => PaginatedProductsDto)
-  products(
-    @Args('query', { nullable: true }) query: QueryProductsDto = new QueryProductsDto(),
-  ) {
+  products(@Args('query', { nullable: true }) query: QueryProductsDto = new QueryProductsDto()) {
     return this.productsService.findAll(query);
   }
 

@@ -58,11 +58,15 @@ describe('ProductsService', () => {
     const created = product();
     prismaMock.product.create.mockResolvedValue(created);
 
-    const result = await service.create('admin-1', {
-      name: 'Wireless Mouse',
-      price: 29.9,
-      stock: 10,
-    }, ctx);
+    const result = await service.create(
+      'admin-1',
+      {
+        name: 'Wireless Mouse',
+        price: 29.9,
+        stock: 10,
+      },
+      ctx,
+    );
 
     expect(prismaMock.product.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -101,7 +105,9 @@ describe('ProductsService', () => {
 
     await service.findAll({ page: 1, limit: 10, search: 'mouse', minPrice: 10, maxPrice: 50 });
 
-    const call = prismaMock.product.findMany.mock.calls[0][0] as { where: Prisma.ProductWhereInput };
+    const call = prismaMock.product.findMany.mock.calls[0][0] as {
+      where: Prisma.ProductWhereInput;
+    };
     expect(call.where).toEqual({
       isActive: true,
       name: { contains: 'mouse', mode: 'insensitive' },

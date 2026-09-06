@@ -38,11 +38,7 @@ export class PaginatedResponseDto<T> {
   }
 }
 
-export function buildPaginationMeta(
-  total: number,
-  page: number,
-  limit: number,
-): PaginationMetaDto {
+export function buildPaginationMeta(total: number, page: number, limit: number): PaginationMetaDto {
   const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
   return {
     page,
@@ -53,4 +49,3 @@ export function buildPaginationMeta(
     hasPreviousPage: page > 1,
   };
 }
-

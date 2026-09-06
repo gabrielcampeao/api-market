@@ -14,14 +14,7 @@ import { OrdersResolver } from './resolvers/orders.resolver';
 import { PaymentsResolver } from './resolvers/payments.resolver';
 
 @Module({
-  imports: [
-    AuthModule,
-    UsersModule,
-    ProductsModule,
-    CartModule,
-    OrdersModule,
-    PaymentsModule,
-  ],
+  imports: [AuthModule, UsersModule, ProductsModule, CartModule, OrdersModule, PaymentsModule],
   providers: [
     AuthResolver,
     UsersResolver,

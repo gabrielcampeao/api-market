@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -73,12 +64,7 @@ export class CartController {
     @Body() dto: UpdateCartItemDto,
     @Req() req: Request,
   ): Promise<{ message: string }> {
-    const item = await this.cartService.updateItem(
-      user.id,
-      productId,
-      dto,
-      getRequestContext(req),
-    );
+    const item = await this.cartService.updateItem(user.id, productId, dto, getRequestContext(req));
     return { message: `Quantity updated (quantity: ${item.quantity})` };
   }
 
@@ -96,10 +82,7 @@ export class CartController {
   @Delete()
   @ApiOperation({ summary: 'Clear the entire cart' })
   @ApiOkResponse({ description: 'Cart cleared' })
-  clear(
-    @CurrentUser() user: AuthenticatedUser,
-    @Req() req: Request,
-  ): Promise<{ message: string }> {
+  clear(@CurrentUser() user: AuthenticatedUser, @Req() req: Request): Promise<{ message: string }> {
     return this.cartService.clear(user.id, getRequestContext(req));
   }
 }

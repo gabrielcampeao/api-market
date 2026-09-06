@@ -38,20 +38,20 @@ describe('validateEnv', () => {
   };
 
   it('rejects CORS_ORIGINS of "*" in production', () => {
-    expect(() =>
-      validateEnv({ ...prodBase, CORS_ORIGINS: '*' }),
-    ).toThrow('CORS_ORIGINS must not include "*" in production (credentials are enabled).');
+    expect(() => validateEnv({ ...prodBase, CORS_ORIGINS: '*' })).toThrow(
+      'CORS_ORIGINS must not include "*" in production (credentials are enabled).',
+    );
   });
 
   it('rejects "*" mixed into a CORS_ORIGINS list in production', () => {
-    expect(() =>
-      validateEnv({ ...prodBase, CORS_ORIGINS: 'https://app.example.com,*' }),
-    ).toThrow('CORS_ORIGINS must not include "*" in production (credentials are enabled).');
+    expect(() => validateEnv({ ...prodBase, CORS_ORIGINS: 'https://app.example.com,*' })).toThrow(
+      'CORS_ORIGINS must not include "*" in production (credentials are enabled).',
+    );
   });
 
   it('accepts an explicit origin list in production', () => {
-    expect(
-      validateEnv({ ...prodBase, CORS_ORIGINS: 'https://app.example.com' }),
-    ).toMatchObject({ CORS_ORIGINS: 'https://app.example.com' });
+    expect(validateEnv({ ...prodBase, CORS_ORIGINS: 'https://app.example.com' })).toMatchObject({
+      CORS_ORIGINS: 'https://app.example.com',
+    });
   });
 });
