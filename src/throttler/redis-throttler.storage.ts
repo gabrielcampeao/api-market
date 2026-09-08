@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface';
 
@@ -27,10 +28,43 @@ const INCREMENT_SCRIPT = `
   return hits
 `;
 
+const NOT_BLOCKED: ThrottlerStorageRecord = {
+  totalHits: 0,
+  timeToExpire: 0,
+  isBlocked: false,
+  timeToBlockExpire: 0,
+};
+
 export class RedisThrottlerStorage implements ThrottlerStorage {
+  private readonly logger = new Logger(RedisThrottlerStorage.name);
+
   constructor(private readonly redis: ThrottlerRedisLike) {}
 
   async increment(
+    key: string,
+    ttl: number,
+    limit: number,
+    blockDuration: number,
+    throttlerName: string,
+  ): Promise<ThrottlerStorageRecord> {
+    try {
+      return await this.doIncrement(key, ttl, limit, blockDuration, throttlerName);
+    } catch (err) {
+      // This factory only runs this class after a successful Redis ping at
+      // boot — it says nothing about Redis staying up for the rest of the
+      // process's life. Without this catch, Redis dropping mid-run turns
+      // every single request through the global ThrottlerGuard into a 500,
+      // i.e. a rate limiter outage becomes a full API outage. Failing open
+      // (let the request through, unrated) is the safer failure mode: the
+      // worst case is temporarily unlimited traffic, not a dead API.
+      this.logger.warn(
+        `Redis throttle check failed, allowing request through: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return NOT_BLOCKED;
+    }
+  }
+
+  private async doIncrement(
     key: string,
     ttl: number,
     limit: number,
