@@ -13,7 +13,7 @@ import { PaymentProvider, PaymentResult } from './payment-provider.interface';
 export class FakePaymentProvider implements PaymentProvider {
   readonly name = 'fake';
 
-  async charge(_amount: Decimal, reference: string): Promise<PaymentResult> {
+  async charge(_amount: Decimal, reference: string, _idempotencyKey: string): Promise<PaymentResult> {
     // Simulated gateway latency.
     await new Promise((resolve) => setTimeout(resolve, 150));
     return {
