@@ -16,6 +16,8 @@ export interface EnvConfig {
   ADMIN_PASSWORD: string;
   ADMIN_NAME: string;
   TRUST_PROXY: boolean;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 }
 
 function toInt(value: unknown, fallback: number): number {
@@ -78,5 +80,11 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
     // load balancer — otherwise X-Forwarded-For becomes attacker-controlled
     // and can be used to bypass IP-based rate limiting.
     TRUST_PROXY: config.TRUST_PROXY === 'true',
+    // Optional: when unset, PaymentsModule falls back to FakePaymentProvider
+    // (same pattern as ThrottlerStorageFactory falling back to in-memory
+    // when Redis is unreachable — the app stays usable without the real
+    // dependency configured).
+    STRIPE_SECRET_KEY: config.STRIPE_SECRET_KEY as string | undefined,
+    STRIPE_WEBHOOK_SECRET: config.STRIPE_WEBHOOK_SECRET as string | undefined,
   };
 }
