@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import Stripe from 'stripe';
-import { PaymentProvider, PaymentResult } from './payment-provider.interface';
+import { PaymentProvider, PaymentResult, PaymentStatusResult } from './payment-provider.interface';
 import { AppConfigService } from '../../config/app-config.service';
 
 // No real checkout UI collects a card in this project — orders are paid
@@ -22,7 +22,7 @@ export class StripePaymentProvider implements PaymentProvider {
   // PAYMENT_PROVIDER factory ends up selecting (see payments.module.ts), so
   // this can't throw at construction time or the app would fail to boot
   // with the Fake provider active. `stripe` stays undefined instead, and
-  // charge() throws only if this provider is actually called —
+  // charge()/checkStatus() throw only if this provider is actually called —
   // which the factory guarantees won't happen without a key.
   private readonly stripe: Stripe | undefined;
 
@@ -69,6 +69,56 @@ export class StripePaymentProvider implements PaymentProvider {
       }
       this.logger.warn(`Stripe charge failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
+    }
+  }
+
+  async checkStatus(
+    amount: Decimal,
+    reference: string,
+    idempotencyKey: string,
+  ): Promise<PaymentStatusResult> {
+    try {
+      // Re-sending the exact same request Stripe already saw this
+      // idempotency key for returns the original PaymentIntent instead of
+      // creating a new charge — this is a status check, not a second charge,
+      // as long as amount/reference/idempotencyKey all match the original.
+      const intent = await this.client().paymentIntents.create(
+        {
+          amount: toCents(amount),
+          currency: 'usd',
+          payment_method: TEST_PAYMENT_METHOD,
+          confirm: true,
+          off_session: true,
+          description: `order:${reference}`,
+          metadata: { orderId: reference },
+        },
+        { idempotencyKey },
+      );
+      const result = this.toResult(intent);
+      return result.approved
+        ? { status: 'approved', providerRef: result.providerRef }
+        : {
+            status: 'declined',
+            providerRef: result.providerRef,
+            failureCode: result.failureCode,
+            message: result.message,
+          };
+    } catch (err) {
+      if (err instanceof Stripe.errors.StripeCardError) {
+        return {
+          status: 'declined',
+          providerRef: err.payment_intent?.id,
+          failureCode: err.code,
+          message: err.message,
+        };
+      }
+      // Network/5xx/timeout while reconciling: genuinely unknown, not a
+      // decline — the reconciliation job leaves the payment PROCESSING and
+      // tries again on its next run instead of guessing.
+      this.logger.warn(
+        `Stripe checkStatus failed, treating as unknown: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { status: 'unknown' };
     }
   }
 
