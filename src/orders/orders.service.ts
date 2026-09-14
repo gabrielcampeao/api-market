@@ -1,15 +1,18 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
 import { MailService } from '../mail/mail.service';
+import { PAYMENT_PROVIDER, PaymentProvider } from '../payments/providers/payment-provider.interface';
 import { RequestContext } from '../common/utils/request-context.util';
 import { buildPaginationMeta, PaginatedResponseDto } from '../common/dto/paginated-response.dto';
 import { toOrderDto, OrderDto, OrderWithRelations } from './dto/order.dto';
@@ -37,6 +40,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly mail: MailService,
+    @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: PaymentProvider,
   ) {}
 
   async checkout(userId: string, ctx: RequestContext): Promise<OrderDto> {
@@ -97,7 +101,11 @@ export class OrdersService {
               })),
             },
             payment: {
-              create: { provider: 'fake', amount: total },
+              create: {
+                provider: this.paymentProvider.name,
+                amount: total,
+                providerIdempotencyKey: randomUUID(),
+              },
             },
           },
           include: ORDER_INCLUDE,

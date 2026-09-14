@@ -5,6 +5,7 @@ import { OrdersService } from './orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
 import { MailService } from '../mail/mail.service';
+import { PAYMENT_PROVIDER } from '../payments/providers/payment-provider.interface';
 import { RequestContext } from '../common/utils/request-context.util';
 
 const ctx: RequestContext = { ip: '127.0.0.1', userAgent: 'jest' };
@@ -84,6 +85,7 @@ describe('OrdersService', () => {
     sendPasswordReset: jest.fn().mockResolvedValue(undefined),
     sendOrderConfirmation: jest.fn().mockResolvedValue(undefined),
   };
+  const paymentProviderMock = { name: 'fake' };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -99,6 +101,7 @@ describe('OrdersService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditLogService, useValue: auditMock },
         { provide: MailService, useValue: mailMock },
+        { provide: PAYMENT_PROVIDER, useValue: paymentProviderMock },
       ],
     }).compile();
 
