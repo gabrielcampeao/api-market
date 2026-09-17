@@ -1,10 +1,10 @@
 # Marketplace API
 
-A marketplace backend built with **NestJS, PostgreSQL, Prisma and Redis**.
+Marketplace backend built with **NestJS, PostgreSQL, Prisma and Redis**.
 
-It includes the usual marketplace flows such as users, products, cart, checkout, orders and payments.
+Covers the usual flows: users, products, cart, checkout, orders, payments.
 
-Most of the work in this project ended up being around the parts that are easier to get wrong in a backend:
+Most of the effort here went into the parts that are easy to get wrong in a backend:
 
 * concurrent payment requests
 * stock races during checkout
@@ -16,11 +16,11 @@ Most of the work in this project ended up being around the parts that are easier
 * dependency failures
 * deployment and rollback
 
-The API exposes both **REST** and **GraphQL**.
+Both **REST** and **GraphQL** are exposed.
 
-Payments use **Stripe** when configured and fall back to a fake provider for local development.
+Stripe handles payments when configured; a fake provider takes over for local development.
 
-The project also includes:
+Also included:
 
 * Prometheus metrics
 * Grafana dashboards
@@ -33,7 +33,7 @@ The project also includes:
 * multi-instance concurrency tests
 * documented architecture decisions
 
-More detailed technical decisions are available in [`docs/adr/`](docs/adr/).
+More detail on technical decisions lives in [`docs/adr/`](docs/adr/).
 
 Security notes and known risks are documented in [`SECURITY.md`](SECURITY.md) and [`docs/threat-model.md`](docs/threat-model.md).
 
@@ -87,7 +87,7 @@ src/
 ### Responsibilities
 
 | Module         | Responsibility                                                 |
-| -------------- | -------------------------------------------------------------- |
+| -------------- | ---------------------------------------------------------------- |
 | `auth/`        | Registration, login, refresh token rotation and password reset |
 | `users/`       | Profile and admin user management                              |
 | `products/`    | Catalog and stock                                              |
@@ -99,11 +99,9 @@ src/
 | `idempotency/` | Idempotency-Key handling                                       |
 | `logging/`     | HTTP logs and audit logs                                       |
 | `graphql/`     | GraphQL entry points                                           |
-| `common/`      | Guards, decorators, filters, mappers and middleware            |
+| `common/`      | Guards, decorators, filters, mappers and middleware             |
 
-REST controllers and GraphQL resolvers use the same business services.
-
-The business rules are not duplicated between the two APIs.
+REST controllers and GraphQL resolvers share the same business services — no duplicated rules between the two APIs.
 
 ---
 
@@ -140,22 +138,22 @@ FAILED
 REFUNDED
 ```
 
-Payment and order transitions are centralized instead of being reimplemented in different services.
+Payment and order transitions live in one place instead of being reimplemented across services.
 
-Examples of invalid transitions:
+Invalid transitions, for example:
 
 ```text
 APPROVED -> PROCESSING
 REFUNDED -> APPROVED
 ```
 
-This makes the state rules easier to test and harder to bypass accidentally.
+That keeps the state rules testable and harder to bypass by accident.
 
 ---
 
 ## Authentication
 
-Login and registration return an access token and a refresh token.
+Login and registration return an access token plus a refresh token.
 
 | Token                |   Lifetime |
 | -------------------- | ---------: |
@@ -165,9 +163,9 @@ Login and registration return an access token and a refresh token.
 
 Refresh tokens are opaque and stored hashed in PostgreSQL.
 
-Every successful refresh revokes the previous token and returns a new pair.
+Each successful refresh revokes the previous token and issues a new pair.
 
-The revocation uses a conditional database update:
+Revocation relies on a conditional database update:
 
 ```ts
 const revoked = await tx.refreshToken.updateMany({
@@ -187,15 +185,15 @@ if (revoked.count === 0) {
 }
 ```
 
-This avoids a read-then-write race when two requests try to use the same refresh token at the same time.
+This sidesteps a read-then-write race when two requests try to reuse the same refresh token simultaneously.
 
 ---
 
 # Concurrency
 
-Most of the interesting bugs in this project came from flows where state was read first and changed later.
+Most of the interesting bugs in this project traced back to flows that read state first and changed it later.
 
-A pattern like this can be unsafe:
+This pattern is unsafe:
 
 ```text
 READ
@@ -203,21 +201,21 @@ CHECK
 UPDATE
 ```
 
-Another request can modify the record between the read and the update.
+Between the read and the update, another request can slip in and modify the record.
 
-For critical transitions, the condition is included directly in the database update.
+So for critical transitions, the condition goes directly into the database update itself.
 
 ---
 
 ## Payment Claim
 
-Before calling the payment provider, a payment must move from:
+Before calling the payment provider, a payment has to move from:
 
 ```text
 PENDING -> PROCESSING
 ```
 
-The transition is claimed atomically:
+That transition is claimed atomically:
 
 ```ts
 const claimed = await this.prisma.payment.updateMany({
@@ -243,9 +241,7 @@ if (claimed.count !== 1) {
 }
 ```
 
-Only one concurrent request can match the expected state.
-
-The others receive a conflict instead of calling the provider again.
+Only one concurrent request can match the expected state; the rest get a conflict instead of hitting the provider again.
 
 An earlier version used:
 
@@ -253,19 +249,13 @@ An earlier version used:
 providerRef = "__claiming__"
 ```
 
-as a lock.
-
-That worked, but it mixed two responsibilities.
-
-`providerRef` should contain the identifier returned by the payment provider.
-
-The explicit `PROCESSING` state is clearer and easier to recover later.
+as a lock. It worked, but mixed two responsibilities — `providerRef` should hold the identifier the payment provider returns, nothing else. The explicit `PROCESSING` state is clearer and easier to recover from later.
 
 ---
 
 ## Checkout Stock Race
 
-Stock is also updated conditionally:
+Stock updates are conditional too:
 
 ```ts
 const result = await tx.product.updateMany({
@@ -283,23 +273,21 @@ const result = await tx.product.updateMany({
 });
 ```
 
-If another checkout takes the remaining stock first:
+If another checkout grabs the remaining stock first:
 
 ```text
 count = 0
 ```
 
-and the second checkout fails.
+and the second checkout fails cleanly.
 
-PostgreSQL also has a database-level constraint preventing negative stock.
-
-That provides a second line of defense if application logic is ever bypassed.
+PostgreSQL also enforces a database-level constraint against negative stock — a second line of defense if application logic ever gets bypassed.
 
 ---
 
 ## Order Cancellation vs Payment
 
-Cancellation also depends on the current state:
+Cancellation depends on current state as well:
 
 ```ts
 const changed = await tx.order.updateMany({
@@ -313,15 +301,13 @@ const changed = await tx.order.updateMany({
 });
 ```
 
-If another request changes the order first, the update no longer matches.
-
-This prevents two independent operations from silently overwriting each other.
+If another request has already changed the order, the update simply stops matching — so two independent operations can't silently clobber each other.
 
 ---
 
 # Payment Settlement
 
-A payment can be confirmed by three different paths:
+Three different paths can confirm a payment:
 
 ```text
 Original pay request
@@ -329,38 +315,30 @@ Stripe webhook
 Reconciliation job
 ```
 
-Any two of them can run at the same time.
+Any two of them can fire at the same time.
 
-The main rule is simple:
+The rule is simple:
 
 ```text
 Claim the payment first
 Then update related state
 ```
 
-This ordering matters.
-
-An earlier version updated the order before checking whether the payment claim actually succeeded.
-
-That could create inconsistent state such as:
+Ordering matters here. An earlier version updated the order before confirming the payment claim actually succeeded, which could leave inconsistent state like:
 
 ```text
 order = PAID
 payment = FAILED
 ```
 
-The payment claim is now the first mutation.
-
-Only the winner continues to update:
+Now the payment claim is the first mutation. Only whichever path wins the claim continues on to update:
 
 * the order
 * PaymentAttempt
 * audit logs
 * metrics
 
-There is an e2e test that fires webhook processing and reconciliation against the same payment at the same time.
-
-The test checks both final state and audit records to make sure only one path actually records the approval.
+An e2e test fires webhook processing and reconciliation against the same payment simultaneously, then checks both final state and audit records to confirm only one path actually records the approval.
 
 ---
 
@@ -372,7 +350,7 @@ Checkout and payment support:
 Idempotency-Key: <value>
 ```
 
-The key is scoped by:
+Scoped by:
 
 ```text
 user
@@ -383,17 +361,13 @@ request payload
 Behavior:
 
 | Situation                 | Result                                           |
-| ------------------------- | ------------------------------------------------ |
+| -------------------------- | -------------------------------------------------- |
 | New key                   | Request executes and response is stored          |
 | Same key + same body      | Cached response is returned                      |
 | Same key + different body | `409 Conflict`                                   |
 | Same key concurrently     | One request runs, the other waits for its result |
 
-The request body is hashed using SHA-256.
-
-Object keys are sorted before hashing.
-
-These two payloads are therefore treated as equivalent:
+The request body is hashed with SHA-256, with object keys sorted first — so these two payloads count as equivalent:
 
 ```json
 {
@@ -409,17 +383,13 @@ These two payloads are therefore treated as equivalent:
 }
 ```
 
-Concurrent requests currently use a short polling interval while waiting for the first request to finish.
-
-That is enough for this project, but it is documented as something that would need to change under heavy contention on a single key.
+Concurrent requests currently wait on a short polling interval for the first request to finish. Good enough here, but documented as something that would need rework under heavy contention on a single key.
 
 ---
 
 # Stripe Payments
 
-When `STRIPE_SECRET_KEY` is configured, the application uses Stripe.
-
-Without it, local development uses the fake provider.
+When `STRIPE_SECRET_KEY` is set, the app talks to Stripe. Without it, local development falls back to the fake provider.
 
 ```text
 PaymentsService
@@ -432,17 +402,13 @@ PAYMENT_PROVIDER
       +--> FakePaymentProvider
 ```
 
-This abstraction exists because there are two real implementations.
-
-Similar abstractions were removed elsewhere when they did not provide any practical value.
+This abstraction exists because there really are two implementations in use — similar abstractions were stripped out elsewhere when they weren't earning their keep.
 
 ---
 
 ## Payment Attempts
 
-`Payment` represents the logical payment.
-
-`PaymentAttempt` represents each interaction with the provider.
+`Payment` is the logical payment. `PaymentAttempt` is each interaction with the provider.
 
 Example:
 
@@ -460,9 +426,7 @@ Attempt 3
 APPROVED
 ```
 
-Before `PaymentAttempt` existed, retries overwrote information on the same payment record.
-
-Keeping attempts separately makes failures and retries easier to understand later.
+Before `PaymentAttempt` existed, retries overwrote information on the same payment record. Keeping attempts separate makes failures and retries much easier to reconstruct afterward.
 
 ---
 
@@ -480,11 +444,7 @@ It does not protect:
 API -> Stripe
 ```
 
-Stripe receives its own idempotency key for the logical payment.
-
-The key is created once and reused for retries.
-
-This matters in a failure like:
+Stripe gets its own idempotency key for the logical payment, created once and reused across retries. That matters for a failure like:
 
 ```text
 API sends payment request
@@ -496,70 +456,52 @@ response is lost
 API retries
 ```
 
-Without provider-side idempotency, the retry could become another charge.
+Without provider-side idempotency, that retry could turn into a second charge.
 
 ---
 
 # Stripe Webhooks
 
-Stripe sends events to:
+Stripe posts events to:
 
 ```text
 POST /webhooks/stripe
 ```
 
-The request signature is verified using the raw HTTP body.
-
-NestJS is configured with:
+The signature is verified against the raw HTTP body. NestJS is configured with:
 
 ```ts
 rawBody: true
 ```
 
-because parsing and serializing the body again changes the original bytes used by Stripe to calculate the signature.
-
-This was a real bug found while testing the webhook integration.
+because reparsing and reserializing the body changes the exact bytes Stripe used to compute the signature — a real bug found while testing the webhook integration.
 
 ---
 
 ## Webhook Deduplication
 
-Every received Stripe event is persisted with:
+Every Stripe event received gets persisted with:
 
 ```text
 provider
 eventId
 ```
 
-The database has a unique constraint on that pair.
+and the database enforces a unique constraint on that pair.
 
-The first implementation checked whether the event existed and then created it.
-
-That had a TOCTOU race.
-
-Multiple webhook requests could all see:
+The first implementation checked whether the event already existed, then inserted it — a TOCTOU race. Multiple webhook requests could all observe:
 
 ```text
 event does not exist
 ```
 
-before any of them inserted the row.
-
-Concurrent tests exposed the problem.
-
-The database unique constraint is now the deduplication boundary.
-
-One request wins.
-
-The others become safe duplicates.
+before any of them managed to insert the row. Concurrent tests exposed this. The unique constraint is now the actual deduplication boundary: one request wins, the rest become safe duplicates.
 
 ---
 
 ## Webhook Correlation
 
-The first implementation tried to find the local payment using `providerRef`.
-
-That fails in this scenario:
+The first implementation tried to look up the local payment via `providerRef`, which fails in this scenario:
 
 ```text
 Stripe approves the payment
@@ -569,31 +511,25 @@ API crashes before providerRef is stored
 Stripe sends the webhook
 ```
 
-Stripe knows about the payment, but the local database still does not know its Stripe reference.
-
-The Stripe object now contains:
+Stripe knows about the payment, but the local database has no record of its Stripe reference yet. The Stripe object now carries:
 
 ```text
 metadata.orderId
 ```
 
-The webhook uses that metadata to reconnect the external payment with the local order.
+and the webhook uses that to reconnect the external payment with the local order.
 
 ---
 
 # Reconciliation
 
-Webhooks are not the only recovery mechanism.
-
-A reconciliation job runs every five minutes.
-
-It looks for payments stuck in:
+Webhooks aren't the only recovery path. A reconciliation job runs every five minutes, looking for payments stuck in:
 
 ```text
 PROCESSING
 ```
 
-Instead of guessing what happened, it asks the provider directly.
+Rather than guess, it asks the provider directly:
 
 ```text
 PROCESSING payment
@@ -608,23 +544,13 @@ Check Stripe
         +--> unknown
 ```
 
-There is also an admin endpoint for manual reconciliation.
-
-An in-memory `isRunning` guard prevents the cron and manual trigger from overlapping inside the same API process.
-
-That guard does not protect separate API instances.
-
-Cross-instance safety comes from the atomic database claim.
-
-This was verified using two API instances sharing the same PostgreSQL and Redis.
+There's also an admin endpoint for manual reconciliation. An in-memory `isRunning` guard keeps the cron and manual trigger from overlapping within the same API process — but that guard doesn't cover separate instances. Cross-instance safety comes from the atomic database claim, verified using two API instances sharing the same PostgreSQL and Redis.
 
 ---
 
 # Exactly Once?
 
-The project does not claim to provide a universal exactly-once transaction across PostgreSQL and Stripe.
-
-The actual guarantees are more specific.
+This project doesn't claim a universal exactly-once transaction spanning PostgreSQL and Stripe — the actual guarantees are narrower than that.
 
 Locally:
 
@@ -638,7 +564,7 @@ At the provider boundary:
 The same logical Stripe operation reuses the same idempotency key
 ```
 
-Recovery is handled through:
+Recovery runs through:
 
 ```text
 Stripe webhook
@@ -646,7 +572,7 @@ Stripe webhook
 polling reconciliation
 ```
 
-The practical model is:
+So the practical model is:
 
 ```text
 Local settlement protection
@@ -658,13 +584,13 @@ webhook recovery
 reconciliation
 ```
 
-Stripe still owns the guarantee that its idempotency implementation will not double-charge the same provider operation.
+Stripe itself still owns the guarantee that its idempotency implementation won't double-charge the same provider operation.
 
 ---
 
 # Security
 
-The project includes:
+Included:
 
 * JWT secret validation at startup
 * refresh token rotation
@@ -683,15 +609,13 @@ The project includes:
 * `npm audit` in CI
 * documented threat model
 
-The threat model is available at:
+Threat model:
 
 ```text
 docs/threat-model.md
 ```
 
-Known risks are documented instead of being hidden.
-
-One current limitation is that authentication does not have account-specific lockout or exponential backoff beyond IP-based rate limiting.
+Known risks are documented rather than swept under the rug. One current gap: authentication has no account-specific lockout or exponential backoff beyond IP-based rate limiting.
 
 ---
 
@@ -727,25 +651,13 @@ PostgreSQL health
 Redis health
 ```
 
-HTTP metrics use the matched route pattern instead of the raw URL.
-
-For example:
-
-```text
-/orders/:id
-```
-
-instead of creating a separate label for every order ID.
-
-This avoids unbounded metric cardinality.
+HTTP metrics use the matched route pattern rather than the raw URL — `/orders/:id` instead of a separate label per order ID — to avoid unbounded metric cardinality.
 
 ---
 
 # Grafana and Alerts
 
-Grafana is provisioned from files stored in the repository.
-
-The dashboard covers:
+Grafana is provisioned from files stored in the repo. The dashboard covers:
 
 * API health
 * request rate
@@ -766,9 +678,7 @@ Alert rules include:
 * payments stuck in `PROCESSING`
 * high Stripe latency
 
-Alerts are routed through email using Mailtrap SMTP.
-
-The full cycle was tested:
+Alerts route through email via Mailtrap SMTP. The full cycle has been tested end to end:
 
 ```text
 Dependency goes down
@@ -790,7 +700,7 @@ Resolved email arrives
 
 # Deployment
 
-The application is deployed using a self-hosted GitHub Actions runner.
+Deployed via a self-hosted GitHub Actions runner.
 
 ```text
 push
@@ -824,9 +734,7 @@ poll /health/ready
   +--> unhealthy -> rollback
 ```
 
-The readiness check is retried for up to five minutes.
-
-The deployment stack contains:
+The readiness check retries for up to five minutes. Deployment stack:
 
 ```text
 API
@@ -837,19 +745,13 @@ Prometheus
 Grafana
 ```
 
-The public API currently uses a Cloudflare Quick Tunnel.
-
-Prometheus and Grafana are not exposed through the public tunnel.
+The public API currently runs behind a Cloudflare Quick Tunnel. Prometheus and Grafana stay off the public tunnel.
 
 ---
 
 # Multi-Instance Test
 
-Production normally runs one API instance.
-
-A separate test environment starts a second API process using the same PostgreSQL and Redis.
-
-It verifies:
+Production normally runs a single API instance. A separate test environment spins up a second API process against the same PostgreSQL and Redis to verify:
 
 * shared state between instances
 * payment races across instances
@@ -866,21 +768,13 @@ API A
 API B
 ```
 
-Only one instance successfully claims the payment.
-
-The other receives a conflict.
-
-The same principle applies to webhook deduplication.
-
-The test also confirmed that `isRunning` is process-local.
-
-Cross-instance correctness comes from PostgreSQL, not process memory.
+Only one instance successfully claims the payment; the other gets a conflict. Same principle for webhook deduplication. The test also confirmed `isRunning` is process-local — cross-instance correctness comes from PostgreSQL, not process memory.
 
 ---
 
 # Backup and Restore
 
-A backup and restore drill is available at:
+A backup and restore drill lives at:
 
 ```text
 scripts/backup-restore-drill.sh
@@ -904,19 +798,13 @@ Checks /health/ready
 Compares important table counts
 ```
 
-The restored environment is disposable.
-
-The production database is not modified during the drill.
+The restored environment is disposable; the production database is never touched during the drill.
 
 ---
 
 # Load Testing
 
-The deployed API was tested using a custom load runner.
-
-A custom runner was used because checkout and payment require fresh state for each flow.
-
-The test records:
+The deployed API was tested with a custom load runner — needed because checkout and payment require fresh state on every run. It records:
 
 ```text
 p50
@@ -926,21 +814,15 @@ throughput
 errors
 ```
 
-A larger product dataset was also created temporarily to test product queries using:
+A larger product dataset was also generated temporarily to test product queries via:
 
 ```sql
 EXPLAIN ANALYZE
 ```
 
-The product name search currently uses a `contains` query.
+Product name search currently uses a `contains` query. A normal B-tree index didn't help it, so the unused index was dropped. At the current catalog size, the sequential scan is fine; a trigram index would be the next thing to evaluate if search becomes a bottleneck.
 
-A normal B-tree index did not improve that query, so the unused index was removed.
-
-For the current catalog size, the sequential scan is acceptable.
-
-If product search becomes a bottleneck, a trigram index would be the next option to evaluate.
-
-Details are available in:
+Details:
 
 ```text
 docs/load-testing.md
@@ -963,12 +845,10 @@ Current suite:
 60 e2e tests
 ```
 
-E2E tests use a real PostgreSQL instance.
-
-Some concurrency tests send between 50 and 100 requests in parallel.
+E2E tests run against a real PostgreSQL instance. Some concurrency tests fire between 50 and 100 parallel requests.
 
 | Scenario                          | Expected behavior     |
-| --------------------------------- | --------------------- |
+| ----------------------------------- | ------------------------ |
 | Same payment claimed concurrently | One request wins      |
 | Same order cancelled concurrently | Stock restored once   |
 | Same refresh token reused         | One refresh succeeds  |
@@ -987,16 +867,14 @@ GET /health/live
 GET /health/ready
 ```
 
-`live` checks whether the application process is running.
-
-`ready` also checks:
+`live` checks whether the process is up. `ready` also checks:
 
 ```text
 PostgreSQL
 Redis
 ```
 
-These endpoints are used by deployment and monitoring.
+Both feed into deployment and monitoring.
 
 ---
 
@@ -1034,75 +912,53 @@ http://localhost:3000/docs
 
 # Known Limitations
 
-These are known gaps, not hidden TODOs.
+Known gaps, not hidden TODOs.
 
 ## Single Production Instance
 
-The normal deployment runs one API container.
-
-The application has been tested with two instances, but there is no permanent load balancer or failover instance.
-
-A host failure still means downtime.
+The normal deployment runs one API container. It's been tested with two instances, but there's no permanent load balancer or failover instance — a host failure still means downtime.
 
 ---
 
 ## Cloudflare Quick Tunnel
 
-The public deployment does not currently have a permanent hostname.
-
-Restarting the tunnel can change the public URL.
+The public deployment doesn't have a permanent hostname yet. Restarting the tunnel can change the public URL.
 
 ---
 
 ## Stripe Idempotency Lifetime
 
-Stripe idempotency keys have a limited lifetime.
-
-Reconciliation normally happens far earlier than that window, but this is still an external constraint the application does not control.
+Stripe idempotency keys have a limited lifetime. Reconciliation normally runs well before that window closes, but it's still an external constraint outside the app's control.
 
 ---
 
 ## Idempotency Waiting
 
-Concurrent requests using the same `Idempotency-Key` currently wait using short polling.
-
-This is acceptable for the current scale.
-
-It would need to be reconsidered under high contention on the same key.
+Concurrent requests sharing an `Idempotency-Key` currently wait via short polling — fine at the current scale, but worth reconsidering under high contention on a single key.
 
 ---
 
 ## Authentication Throttling
 
-Authentication routes are protected by IP-based throttling.
-
-There is no account-level lockout or exponential backoff yet.
+Authentication routes are protected by IP-based throttling only; no account-level lockout or exponential backoff yet.
 
 ---
 
 ## Product Search
 
-`Product.name` uses a `contains` query and currently performs a sequential scan.
-
-This was measured with `EXPLAIN ANALYZE`.
-
-A trigram index was considered but was not necessary for the current dataset.
+`Product.name` uses a `contains` query and currently runs a sequential scan, measured with `EXPLAIN ANALYZE`. A trigram index was considered but isn't necessary for the current dataset.
 
 ---
 
 ## Hand-Written CHECK Constraints
 
-Some PostgreSQL `CHECK` constraints are defined directly in migration SQL.
-
-Prisma does not expose all of these constraints cleanly through its schema DSL.
+Some PostgreSQL `CHECK` constraints live directly in migration SQL — Prisma's schema DSL doesn't expose all of them cleanly.
 
 ---
 
 ## Load-Test Data
 
-Orders created during load testing remain in the database to preserve historical foreign-key relationships.
-
-Products used only for the test are deactivated instead of removing records that are already referenced.
+Orders created during load testing stay in the database to preserve historical foreign-key relationships. Products used only for testing are deactivated rather than deleted, since they're already referenced.
 
 ---
 
@@ -1110,9 +966,7 @@ Products used only for the test are deactivated instead of removing records that
 
 ## Outbox
 
-I considered an Outbox pattern.
-
-The main failure I needed to solve was:
+I considered an Outbox pattern. The main failure to solve was:
 
 ```text
 Stripe succeeds
@@ -1120,29 +974,19 @@ Stripe succeeds
 API dies before saving the result
 ```
 
-Webhook delivery and reconciliation solve that problem more directly.
-
-The order confirmation email runs after the database transaction.
-
-Losing an email does not lose the order itself.
-
-Adding a full Outbox subsystem for the current use case would add more infrastructure than the problem requires.
+Webhook delivery and reconciliation solve that more directly. The order confirmation email runs after the database transaction — losing an email doesn't lose the order. A full Outbox subsystem would add more infrastructure than this use case needs.
 
 ---
 
 ## Kafka, Kubernetes, CQRS and Event Sourcing
 
-These were not added because they do not solve a current constraint in this project.
-
-Adding infrastructure only to make the architecture look larger would make the system harder to maintain without improving its guarantees.
-
-If the constraints change, these decisions can be revisited.
+None of these solve a real constraint in this project right now. Adding infrastructure just to make the architecture look bigger would make the system harder to maintain without improving its guarantees. If the constraints change, these calls can be revisited.
 
 ---
 
 # Architecture Decision Records
 
-The decisions that needed more context than a code comment are documented in:
+Decisions that needed more context than a code comment can provide are documented in:
 
 ```text
 docs/adr/
@@ -1167,15 +1011,13 @@ Decision
 Consequences
 ```
 
-The goal is not to document every implementation detail.
-
-The goal is to keep the reasoning behind the decisions that would otherwise be easy to forget later.
+The goal isn't to document every implementation detail — it's to keep the reasoning behind decisions that would otherwise be easy to lose later.
 
 ---
 
 ## Project Status
 
-Current project coverage includes:
+Current coverage:
 
 ```text
 REST API
@@ -1213,4 +1055,4 @@ Runbook
 SLOs
 ```
 
-The remaining work is mostly operational improvement and continued refinement rather than adding more architecture for the sake of it.
+What's left is mostly operational polish and continued refinement, not more architecture for its own sake.
