@@ -31,10 +31,7 @@ export class AuthController {
   @Post('register')
   @ApiOperation({ summary: 'Register a new user account' })
   @ApiCreatedResponse({ type: TokenResponseDto })
-  register(
-    @Body() dto: RegisterDto,
-    @Req() req: Request,
-  ): Promise<TokenResponseDto> {
+  register(@Body() dto: RegisterDto, @Req() req: Request): Promise<TokenResponseDto> {
     return this.authService.register(dto, getRequestContext(req));
   }
 
@@ -52,10 +49,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rotate a refresh token into a fresh token pair' })
   @ApiOkResponse({ type: TokenResponseDto })
-  refresh(
-    @Body() dto: RefreshDto,
-    @Req() req: Request,
-  ): Promise<TokenResponseDto> {
+  refresh(@Body() dto: RefreshDto, @Req() req: Request): Promise<TokenResponseDto> {
     return this.authService.refresh(dto, getRequestContext(req));
   }
 
@@ -89,10 +83,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset the password using the emailed token' })
   @ApiOkResponse({ description: 'Password updated' })
-  resetPassword(
-    @Body() dto: ResetPasswordDto,
-    @Req() req: Request,
-  ): Promise<{ message: string }> {
+  resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request): Promise<{ message: string }> {
     return this.authService.resetPassword(dto, getRequestContext(req));
   }
 

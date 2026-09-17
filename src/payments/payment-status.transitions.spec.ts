@@ -15,7 +15,13 @@ const EXPECTED: Record<PaymentStatus, Record<PaymentStatus, boolean>> = {
   [PROCESSING]: { PENDING: true, PROCESSING: false, APPROVED: true, FAILED: true, REFUNDED: true },
   [APPROVED]: { PENDING: false, PROCESSING: false, APPROVED: false, FAILED: false, REFUNDED: true },
   [FAILED]: { PENDING: false, PROCESSING: true, APPROVED: false, FAILED: false, REFUNDED: false },
-  [REFUNDED]: { PENDING: false, PROCESSING: false, APPROVED: false, FAILED: false, REFUNDED: false },
+  [REFUNDED]: {
+    PENDING: false,
+    PROCESSING: false,
+    APPROVED: false,
+    FAILED: false,
+    REFUNDED: false,
+  },
 };
 
 describe('payment-status.transitions', () => {

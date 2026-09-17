@@ -145,11 +145,7 @@ describe('OrdersService', () => {
     expect(txMock.cartItem.deleteMany).toHaveBeenCalledWith({
       where: { userId: 'u-1' },
     });
-    expect(mailMock.sendOrderConfirmation).toHaveBeenCalledWith(
-      'jane@example.com',
-      'o-1',
-      '59.80',
-    );
+    expect(mailMock.sendOrderConfirmation).toHaveBeenCalledWith('jane@example.com', 'o-1', '59.80');
     expect(result.status).toBe(OrderStatus.PENDING);
   });
 

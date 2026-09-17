@@ -84,7 +84,9 @@ describe('StripeWebhookService', () => {
   });
 
   it('rejects requests with no verifiable signature', async () => {
-    await expect(service.handleEvent(Buffer.from('{}'), undefined)).rejects.toThrow(BadRequestException);
+    await expect(service.handleEvent(Buffer.from('{}'), undefined)).rejects.toThrow(
+      BadRequestException,
+    );
     expect(prismaMock.webhookEvent.create).not.toHaveBeenCalled();
   });
 
@@ -92,7 +94,9 @@ describe('StripeWebhookService', () => {
     constructEventMock.mockImplementation(() => {
       throw new Error('invalid signature');
     });
-    await expect(service.handleEvent(Buffer.from('{}'), 'bad-sig')).rejects.toThrow(BadRequestException);
+    await expect(service.handleEvent(Buffer.from('{}'), 'bad-sig')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('processes payment_intent.succeeded and approves the payment', async () => {
@@ -148,7 +152,9 @@ describe('StripeWebhookService', () => {
     const result = await service.handleEvent(Buffer.from('{}'), 'sig');
 
     expect(result).toEqual({ status: 'processed' });
-    expect(prismaMock.payment.findFirst).toHaveBeenCalledWith({ where: { orderId: 'o-does-not-exist' } });
+    expect(prismaMock.payment.findFirst).toHaveBeenCalledWith({
+      where: { orderId: 'o-does-not-exist' },
+    });
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 

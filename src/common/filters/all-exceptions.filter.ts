@@ -1,15 +1,8 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  HttpStatus,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
 import { Prisma } from '@prisma/client';
 import { Response } from 'express';
 import { LoggingService } from '../../logging/logging.service';
-
 interface ErrorBody {
   statusCode: number;
   message: string | string[];
@@ -17,32 +10,24 @@ interface ErrorBody {
   timestamp: string;
   path: string;
 }
-
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   constructor(private readonly logger: LoggingService) {}
-
   catch(exception: unknown, host: ArgumentsHost): void {
-    // A GraphQL resolver's ArgumentsHost carries (parent, args, context, info)
-    // rather than (req, res, next) — switchToHttp().getRequest() would hand
-    // back the wrong object (or undefined) and crash the filter itself.
-    // Apollo already turns a thrown error into a proper GraphQL error
-    // response, so just log it and let it propagate instead of trying to
-    // write an HTTP response that doesn't exist here.
     if (host.getType<GqlContextType>() === 'graphql') {
       const gqlContext = GqlExecutionContext.create(host as never);
       const path = gqlContext.getInfo()?.fieldName ?? 'graphql';
       this.logGraphqlException(exception, path);
       throw exception;
     }
-
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<{ method: string; originalUrl: string }>();
+    const request = ctx.getRequest<{
+      method: string;
+      originalUrl: string;
+    }>();
     const path = `${request.method} ${request.originalUrl}`;
-
     const body = this.resolveBody(exception, path);
-
     if (body.statusCode >= 500) {
       this.logger.error(
         `Unhandled exception on ${path}: ${exception instanceof Error ? exception.stack : String(exception)}`,
@@ -51,13 +36,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else {
       this.logger.warn(`Request ${path} failed: ${JSON.stringify(body.message)}`);
     }
-
     response.status(body.statusCode).json(body);
   }
-
   private logGraphqlException(exception: unknown, path: string): void {
-    const isServerError =
-      !(exception instanceof HttpException) || exception.getStatus() >= 500;
+    const isServerError = !(exception instanceof HttpException) || exception.getStatus() >= 500;
     if (isServerError) {
       this.logger.error(
         `Unhandled exception on GraphQL field "${path}": ${exception instanceof Error ? exception.stack : String(exception)}`,
@@ -67,7 +49,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.warn(`GraphQL field "${path}" failed: ${(exception as Error).message}`);
     }
   }
-
   private resolveBody(exception: unknown, path: string): ErrorBody {
     if (exception instanceof HttpException) {
       const statusCode = exception.getStatus();
@@ -81,25 +62,39 @@ export class AllExceptionsFilter implements ExceptionFilter {
           path,
         };
       }
-      const message = (payload as { message?: string | string[] }).message;
+      const message = (
+        payload as {
+          message?: string | string[];
+        }
+      ).message;
       return {
         statusCode,
         message: message ?? 'Bad request',
-        error: (payload as { error?: string }).error ?? HttpStatus[statusCode],
+        error:
+          (
+            payload as {
+              error?: string;
+            }
+          ).error ?? HttpStatus[statusCode],
         timestamp: new Date().toISOString(),
         path,
       };
     }
-
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       return this.resolvePrismaError(exception, path);
     }
-
-    // body-parser (and other Express middleware run before Nest's routing,
-    // e.g. payload-too-large / malformed-body errors) throws plain Errors
-    // with a numeric `status`/`statusCode`, not a NestJS HttpException.
-    const rawStatus = (exception as { status?: unknown; statusCode?: unknown })
-      ?.status ?? (exception as { statusCode?: unknown })?.statusCode;
+    const rawStatus =
+      (
+        exception as {
+          status?: unknown;
+          statusCode?: unknown;
+        }
+      )?.status ??
+      (
+        exception as {
+          statusCode?: unknown;
+        }
+      )?.statusCode;
     if (typeof rawStatus === 'number' && rawStatus >= 400 && rawStatus < 500) {
       return {
         statusCode: rawStatus,
@@ -109,7 +104,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
         path,
       };
     }
-
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: 'Internal server error',
@@ -118,7 +112,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path,
     };
   }
-
   private resolvePrismaError(
     exception: Prisma.PrismaClientKnownRequestError,
     path: string,
@@ -150,8 +143,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
           path,
         };
       case 'P2023':
-        // Malformed id (e.g. a non-UUID string passed to a @db.Uuid column).
-        // Treat the same as "not found" rather than a 500.
         return {
           statusCode: HttpStatus.NOT_FOUND,
           message: 'Record not found',

@@ -1,11 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { SkipThrottle } from '@nestjs/throttler';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { LogsService } from './logs.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ApiPaginatedResponse } from '../common/decorators/api-paginated-response.decorator';

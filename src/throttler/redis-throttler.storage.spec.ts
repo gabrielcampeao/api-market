@@ -28,7 +28,12 @@ describe('RedisThrottlerStorage', () => {
     const result = await storage.increment('ip-1', 60_000, 10, 60_000, 'default');
 
     expect(result.isBlocked).toBe(true);
-    expect(redis.set).toHaveBeenCalledWith(expect.stringContaining('throttle:block:'), '1', 'PX', 60_000);
+    expect(redis.set).toHaveBeenCalledWith(
+      expect.stringContaining('throttle:block:'),
+      '1',
+      'PX',
+      60_000,
+    );
   });
 
   // Redis reachable at boot but drops mid-run — must fail open, not 500.
@@ -51,7 +56,9 @@ describe('RedisThrottlerStorage', () => {
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn(),
       pttl: jest.fn(),
-      eval: jest.fn().mockRejectedValue(new Error('READONLY You can\'t write against a read only replica.')),
+      eval: jest
+        .fn()
+        .mockRejectedValue(new Error("READONLY You can't write against a read only replica.")),
     };
     const storage = new RedisThrottlerStorage(redis as never);
 

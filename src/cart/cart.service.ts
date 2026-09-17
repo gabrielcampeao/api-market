@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CartItem } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
@@ -44,11 +40,7 @@ export class CartService {
     };
   }
 
-  async addItem(
-    userId: string,
-    dto: AddCartItemDto,
-    ctx: RequestContext,
-  ): Promise<CartItem> {
+  async addItem(userId: string, dto: AddCartItemDto, ctx: RequestContext): Promise<CartItem> {
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
     });
@@ -62,9 +54,7 @@ export class CartService {
 
     const newQuantity = (existing?.quantity ?? 0) + dto.quantity;
     if (newQuantity > MAX_QUANTITY) {
-      throw new BadRequestException(
-        `A single cart item cannot exceed ${MAX_QUANTITY} units`,
-      );
+      throw new BadRequestException(`A single cart item cannot exceed ${MAX_QUANTITY} units`);
     }
     if (newQuantity > product.stock) {
       throw new BadRequestException(
