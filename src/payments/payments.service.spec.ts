@@ -24,6 +24,7 @@ function payment(overrides: Partial<Record<string, unknown>> = {}) {
     updatedAt: new Date('2026-01-01'),
     paidAt: null,
     processingAt: null,
+    providerIdempotencyKey: 'idem-key-1',
     ...overrides,
   };
 }
@@ -42,15 +43,22 @@ function order(overrides: Partial<Record<string, unknown>> = {}) {
 describe('PaymentsService', () => {
   let service: PaymentsService;
 
+  const order_ = { findUnique: jest.fn() };
   const payment_ = { updateMany: jest.fn(), update: jest.fn() };
+  const paymentAttempt_ = {
+    create: jest.fn().mockResolvedValue({ id: 'attempt-1' }),
+    update: jest.fn().mockResolvedValue({}),
+  };
   const txMock = {
     order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     payment: payment_,
+    paymentAttempt: paymentAttempt_,
   };
 
   const prismaMock = {
-    order: { findUnique: jest.fn() },
+    order: order_,
     payment: payment_,
+    paymentAttempt: paymentAttempt_,
     $transaction: jest.fn((arg: unknown) => {
       return (arg as (tx: typeof txMock) => Promise<unknown>)(txMock);
     }),
@@ -101,7 +109,45 @@ describe('PaymentsService', () => {
       where: { id: 'pay-1', status: PaymentStatus.PROCESSING },
       data: { status: PaymentStatus.PENDING, processingAt: null },
     });
+    expect(prismaMock.paymentAttempt.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'attempt-1' },
+        data: expect.objectContaining({ status: 'ERROR', failureMessage: 'gateway timeout' }),
+      }),
+    );
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('times out (rather than hanging forever) and reverts to PENDING when the provider never responds', async () => {
+    jest.useFakeTimers();
+    prismaMock.order.findUnique.mockResolvedValue(order());
+    prismaMock.payment.updateMany.mockResolvedValue({ count: 1 });
+    // A provider that never resolves or rejects — a network stall, not an
+    // error. Without a timeout, this would hang the request indefinitely.
+    providerMock.charge.mockReturnValue(new Promise(() => {}));
+
+    const pending = service.pay(user, 'o-1', ctx);
+    const assertion = expect(pending).rejects.toThrow(BadRequestException);
+    await jest.advanceTimersByTimeAsync(15_000);
+    await assertion;
+
+    expect(prismaMock.payment.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'pay-1', status: PaymentStatus.PROCESSING },
+      data: { status: PaymentStatus.PENDING, processingAt: null },
+    });
+    jest.useRealTimers();
+  });
+
+  it('sends the same providerIdempotencyKey to the provider on a retry after a decline', async () => {
+    prismaMock.order.findUnique.mockResolvedValue(order());
+    prismaMock.payment.updateMany.mockResolvedValue({ count: 1 });
+    providerMock.charge.mockResolvedValue({ approved: false, message: 'insufficient funds' });
+
+    await expect(service.pay(user, 'o-1', ctx)).rejects.toThrow(BadRequestException);
+    await expect(service.pay(user, 'o-1', ctx)).rejects.toThrow(BadRequestException);
+
+    expect(providerMock.charge).toHaveBeenNthCalledWith(1, decimal('50.00'), 'o-1', 'idem-key-1');
+    expect(providerMock.charge).toHaveBeenNthCalledWith(2, decimal('50.00'), 'o-1', 'idem-key-1');
   });
 
   it('marks the payment FAILED (not stuck in PROCESSING) when the provider declines', async () => {
@@ -128,6 +174,7 @@ describe('PaymentsService', () => {
       arg({
         order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
         payment: { update: txPaymentUpdate },
+        paymentAttempt: { update: jest.fn().mockResolvedValue({}) },
       }),
     );
 
@@ -151,6 +198,7 @@ describe('PaymentsService', () => {
       arg({
         order: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) }, // order no longer PENDING
         payment: { update: txPaymentUpdate },
+        paymentAttempt: { update: jest.fn().mockResolvedValue({}) },
       }),
     );
 
