@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -11,7 +11,7 @@ RUN npx prisma generate
 COPY src ./src
 RUN npm run build
 
-FROM node:22-alpine AS production
+FROM node:25-alpine AS production
 WORKDIR /app
 ENV NODE_ENV=production
 
