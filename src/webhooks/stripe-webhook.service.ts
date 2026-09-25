@@ -17,7 +17,16 @@ export class StripeWebhookService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
   ) {
-    this.stripe = config.stripeSecretKey ? new Stripe(config.stripeSecretKey) : undefined;
+    // constructEvent() below is pure local HMAC verification against
+    // stripeWebhookSecret — it never calls the Stripe API, so the client
+    // doesn't need a real (or even matching) STRIPE_SECRET_KEY. Gating this
+    // on stripeSecretKey would incorrectly couple "can this API verify
+    // webhook signatures" to "is this API configured to charge cards",
+    // which are independent concerns (e.g. FakePaymentProvider active for
+    // charges, but real Stripe webhooks still need verifying).
+    this.stripe = config.stripeWebhookSecret
+      ? new Stripe(config.stripeSecretKey || 'sk_test_placeholder_for_webhook_signature_verification')
+      : undefined;
   }
 
   async handleEvent(rawBody: Buffer | undefined, signature: string | undefined): Promise<{ status: string }> {

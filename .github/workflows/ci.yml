@@ -45,7 +45,6 @@ jobs:
       THROTTLE_TTL_MS: 60000
       THROTTLE_LIMIT: 60
       THROTTLE_AUTH_LIMIT: 20
-      STRIPE_SECRET_KEY: sk_test_ci_dummy_key
       STRIPE_WEBHOOK_SECRET: whsec_ci_dummy_secret
 
     steps:
