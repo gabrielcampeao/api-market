@@ -63,6 +63,39 @@ services:
     depends_on:
       - api
 
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    # Not exposed to the tunnel or a host port on purpose — it's a scrape
+    # target/query engine for Grafana, not something meant to be browsed
+    # directly. Reach it with `docker compose exec` or a local port-forward
+    # if you need to poke at it directly.
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: 'true'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      # Bound to localhost only — same reasoning as Prometheus above, this
+      # isn't meant to be public. View it over SSH port-forward
+      # (`ssh -L 3001:localhost:3001 ...`) rather than through the tunnel.
+      - '127.0.0.1:3001:3000'
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

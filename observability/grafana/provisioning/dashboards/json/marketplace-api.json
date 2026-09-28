@@ -1,0 +1,84 @@
+{
+  "title": "Marketplace API",
+  "uid": "marketplace-api",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP requests/sec by status",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[1m])) by (status_code)",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP p95 latency by route",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Payment outcomes/sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(payment_approved_total[5m]))", "legendFormat": "approved" },
+        { "expr": "sum(rate(payment_failed_total[5m])) by (reason)", "legendFormat": "failed ({{reason}})" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Stuck payments (PROCESSING after last reconciliation run)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [{ "expr": "stuck_payments_total" }]
+    },
+    {
+      "id": 5,
+      "title": "Reconciliation outcomes/sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(payment_reconciliation_total[15m])) by (outcome)", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Webhook events/sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "sum(rate(webhook_received_total[5m])) by (type)", "legendFormat": "received ({{type}})" },
+        { "expr": "sum(rate(webhook_duplicate_total[5m]))", "legendFormat": "duplicate" },
+        { "expr": "sum(rate(webhook_invalid_signature_total[5m]))", "legendFormat": "invalid signature" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Stripe request duration (p95) and error rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(stripe_request_duration_seconds_bucket[5m])) by (le, operation))",
+          "legendFormat": "p95 ({{operation}})"
+        },
+        { "expr": "sum(rate(stripe_errors_total[5m])) by (operation)", "legendFormat": "errors ({{operation}})" }
+      ]
+    }
+  ]
+}
