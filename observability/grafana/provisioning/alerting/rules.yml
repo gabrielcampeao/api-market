@@ -1,0 +1,181 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: marketplace-api
+    folder: Marketplace API
+    interval: 1m
+    rules:
+      - uid: readiness-down
+        title: API unreachable (readiness down)
+        condition: C
+        for: 1m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 'Prometheus cannot scrape the marketplace API — the process is down or unreachable.'
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model: { refId: A, instant: true, expr: 'up{job="marketplace-api"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: postgres-down
+        title: Postgres unreachable
+        condition: C
+        for: 1m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 'The API''s last Postgres check failed — see GET /api/health/ready.'
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model: { refId: A, instant: true, expr: 'dependency_up{dependency="postgres"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: redis-down
+        title: Redis unreachable
+        condition: C
+        for: 1m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: 'The API''s last Redis check failed. Rate limiting is failing open (unlimited traffic) while this is down — see the fail-open note on RedisThrottlerStorage.'
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model: { refId: A, instant: true, expr: 'dependency_up{dependency="redis"}' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: high-5xx-rate
+        title: Elevated 5xx error rate
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        annotations:
+          summary: 'More than 5% of requests over the last 5 minutes returned a 5xx.'
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model:
+              refId: A
+              instant: true
+              expr: 'sum(rate(http_requests_total{status_code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+
+      - uid: high-payment-failure-rate
+        title: High payment failure rate
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        annotations:
+          summary: 'Payments have been failing more than once every 2 seconds, sustained for 5 minutes — check the Stripe error rate panel next.'
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model: { refId: A, instant: true, expr: 'sum(rate(payment_failed_total[5m]))' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+
+      - uid: payments-stuck-processing
+        title: Payments stuck in PROCESSING
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        annotations:
+          summary: 'At least one payment has stayed PROCESSING for 10+ minutes across two reconciliation runs — the provider genuinely doesn''t know its outcome yet, or checkStatus itself is failing.'
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model: { refId: A, instant: true, expr: 'stuck_payments_total' }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: high-stripe-latency
+        title: High Stripe API latency
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        annotations:
+          summary: 'Stripe API calls have had a p95 latency above 3s for 5 minutes.'
+        labels:
+          severity: warning
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus_ds
+            model:
+              refId: A
+              instant: true
+              expr: 'histogram_quantile(0.95, sum(rate(stripe_request_duration_seconds_bucket[5m])) by (le))'
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3] }
