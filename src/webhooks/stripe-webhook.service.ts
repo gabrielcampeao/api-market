@@ -175,6 +175,14 @@ export class StripeWebhookService {
           },
         });
       }
+      // PENDING is accepted as a source here (not just PROCESSING, unlike
+      // PaymentsService's own decline write) because this event can arrive
+      // before this app's own claim-to-PROCESSING transition completes —
+      // genuine out-of-order external delivery, not an in-process race. This
+      // is a webhook-specific carve-out, deliberately not folded into the
+      // shared PAYMENT_TRANSITIONS table (see payment-status.transitions.ts)
+      // so reusing sourceStatusesFor() elsewhere can't accidentally permit
+      // skipping PROCESSING.
       await this.prisma.payment.updateMany({
         where: { id: payment.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.PROCESSING] } },
         data: { status: PaymentStatus.FAILED, providerRef: intent.id, processingAt: null },
@@ -200,6 +208,9 @@ export class StripeWebhookService {
         where: { id: order.id, status: OrderStatus.PENDING },
         data: { status: OrderStatus.PAID },
       });
+      // Same out-of-order-delivery carve-out as the decline branch above —
+      // PENDING is a legal source here only because of external webhook
+      // timing, not a domain-level transition.
       await tx.payment.updateMany({
         where: { id: payment.id, status: { in: [PaymentStatus.PENDING, PaymentStatus.PROCESSING] } },
         data: {

@@ -18,14 +18,7 @@ import { buildPaginationMeta, PaginatedResponseDto } from '../common/dto/paginat
 import { toOrderDto, OrderDto, OrderWithRelations } from './dto/order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
-
-const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  [OrderStatus.PENDING]: [OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.CANCELLED],
-  [OrderStatus.PAID]: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
-  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
-  [OrderStatus.DELIVERED]: [],
-  [OrderStatus.CANCELLED]: [],
-};
+import { ORDER_TRANSITIONS } from './order-status.transitions';
 
 const ORDER_INCLUDE = {
   items: { include: { product: true } },
@@ -225,7 +218,7 @@ export class OrdersService {
   ): Promise<OrderDto> {
     const order = await this.findById(orderId);
 
-    const allowed = TRANSITIONS[order.status];
+    const allowed = ORDER_TRANSITIONS[order.status];
     if (!allowed.includes(dto.status)) {
       throw new BadRequestException(
         `Cannot transition order from ${order.status} to ${dto.status}`,

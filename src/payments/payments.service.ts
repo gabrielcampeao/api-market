@@ -15,6 +15,7 @@ import { PaymentDto } from '../orders/dto/order.dto';
 import { withTimeout } from '../common/utils/with-timeout.util';
 import { MetricsService } from '../metrics/metrics.service';
 import { PAYMENT_PROVIDER, PaymentProvider } from './providers/payment-provider.interface';
+import { sourceStatusesFor } from './payment-status.transitions';
 
 const PROVIDER_TIMEOUT_MS = 15_000;
 
@@ -65,11 +66,13 @@ export class PaymentsService {
     //
     // FAILED is claimable too so a declined payment can be retried; APPROVED
     // is excluded (checked above) and PROCESSING is excluded because another
-    // request already holds the claim.
+    // request already holds the claim. sourceStatusesFor derives this set
+    // from the single shared transition table instead of hardcoding it here
+    // — see payment-status.transitions.ts for the full domain adjacency list.
     const claimed = await this.prisma.payment.updateMany({
       where: {
         id: payment.id,
-        status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED] },
+        status: { in: sourceStatusesFor(PaymentStatus.PROCESSING) },
       },
       data: { status: PaymentStatus.PROCESSING, processingAt: new Date() },
     });
