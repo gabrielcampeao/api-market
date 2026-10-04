@@ -139,6 +139,66 @@ describe('StripeWebhookService', () => {
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
+  it('ignores an event whose metadata.orderId does not match any payment', async () => {
+    constructEventMock.mockReturnValue(
+      paymentIntentEvent('payment_intent.succeeded', { metadata: { orderId: 'o-does-not-exist' } }),
+    );
+    prismaMock.payment.findFirst.mockResolvedValue(null);
+
+    const result = await service.handleEvent(Buffer.from('{}'), 'sig');
+
+    expect(result).toEqual({ status: 'processed' });
+    expect(prismaMock.payment.findFirst).toHaveBeenCalledWith({ where: { orderId: 'o-does-not-exist' } });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not resurrect a payment that is already REFUNDED (out-of-order delivery)', async () => {
+    constructEventMock.mockReturnValue(paymentIntentEvent('payment_intent.succeeded'));
+    prismaMock.payment.findFirst.mockResolvedValue({
+      id: 'pay-1',
+      orderId: 'o-1',
+      status: PaymentStatus.REFUNDED,
+    });
+
+    await service.handleEvent(Buffer.from('{}'), 'sig');
+
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(auditMock.log).not.toHaveBeenCalled();
+  });
+
+  it('ignores an unhandled event type without touching the payment', async () => {
+    constructEventMock.mockReturnValue(paymentIntentEvent('charge.dispute.created'));
+
+    const result = await service.handleEvent(Buffer.from('{}'), 'sig');
+
+    expect(result).toEqual({ status: 'processed' });
+    expect(prismaMock.payment.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.webhookEvent.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ processedAt: expect.any(Date) }) }),
+    );
+  });
+
+  it('does not mark the order PAID from a stale succeeded event after the payment already failed', async () => {
+    // A "succeeded" event delivered after an earlier "failed" event (or
+    // after PaymentsService.pay() itself already recorded a decline) for the
+    // same PaymentIntent — the payment is FAILED, not PENDING/PROCESSING, so
+    // it's outside this webhook's claimable set entirely.
+    constructEventMock.mockReturnValue(paymentIntentEvent('payment_intent.succeeded'));
+    prismaMock.payment.findFirst.mockResolvedValue({
+      id: 'pay-1',
+      orderId: 'o-1',
+      status: PaymentStatus.FAILED,
+    });
+    prismaMock.order.findUniqueOrThrow.mockResolvedValue({ id: 'o-1', status: 'PENDING' });
+    payment_.updateMany.mockResolvedValue({ count: 0 });
+
+    await service.handleEvent(Buffer.from('{}'), 'sig');
+
+    expect(txMock.order.updateMany).not.toHaveBeenCalled();
+    expect(paymentAttempt_.update).not.toHaveBeenCalled();
+    expect(auditMock.log).not.toHaveBeenCalled();
+  });
+
   it('is a no-op for a duplicate delivery of an already-processed event', async () => {
     constructEventMock.mockReturnValue(paymentIntentEvent('payment_intent.succeeded'));
     prismaMock.webhookEvent.findUnique.mockResolvedValue({ id: 'we-1', processedAt: new Date() });
