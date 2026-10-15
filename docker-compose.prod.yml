@@ -79,12 +79,27 @@ services:
   grafana:
     image: grafana/grafana:latest
     restart: unless-stopped
+    entrypoint: ['sh', '-c']
+    command:
+      - |
+        set -e
+        mkdir -p /tmp/grafana-provisioning-rendered
+        cp -r /etc/grafana/provisioning-src/. /tmp/grafana-provisioning-rendered/
+        sed -i "s|__ALERT_EMAIL__|${ALERT_NOTIFY_EMAIL}|g" /tmp/grafana-provisioning-rendered/alerting/contactpoints.yml
+        exec /run.sh
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_SECURITY_ALLOW_EMBEDDING: 'true'
+      GF_PATHS_PROVISIONING: /tmp/grafana-provisioning-rendered
+      GF_SMTP_ENABLED: 'true'
+      GF_SMTP_HOST: sandbox.smtp.mailtrap.io:2525
+      GF_SMTP_USER: ${MAILTRAP_SMTP_USER}
+      GF_SMTP_PASSWORD: ${MAILTRAP_SMTP_PASS}
+      GF_SMTP_FROM_ADDRESS: hello@demomailtrap.co
+      GF_SMTP_FROM_NAME: Marketplace API Alerts
     volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning-src:ro
       - grafana_data:/var/lib/grafana
     ports:
       # Bound to localhost only — same reasoning as Prometheus above, this
