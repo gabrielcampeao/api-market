@@ -1,0 +1,45 @@
+name: marketplace-api-prod
+
+# Ad-hoc override for the multi-instance proof (roadmap item: "duas instâncias
+# contra o mesmo Postgres/Redis"). Adds a second api container (api-b) sharing
+# the same postgres/redis as the main stack, without touching the `api`
+# service that cloudflared/prometheus/the live tunnel actually depend on.
+#
+# Usage:
+#   docker compose --env-file ~/marketplace-prod.env \
+#     -f docker-compose.prod.yml -f docker-compose.multi-instance-test.yml \
+#     up -d --build api-b
+#
+# Teardown when done (removes only api-b, leaves the real stack untouched):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.multi-instance-test.yml \
+#     rm -sf api-b
+
+services:
+  api-b:
+    build:
+      context: .
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://marketplace:${POSTGRES_PASSWORD}@postgres:5432/marketplace?schema=public&connection_limit=10&pool_timeout=20
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_TTL_DAYS: 7
+      THROTTLE_TTL_MS: 60000
+      THROTTLE_LIMIT: 60
+      THROTTLE_AUTH_LIMIT: 20
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_NAME: Admin
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+    ports:
+      - '127.0.0.1:3002:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
