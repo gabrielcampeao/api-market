@@ -4,6 +4,8 @@ REST + GraphQL marketplace backend (NestJS, PostgreSQL, Prisma, Redis) — users
 
 Deployed via a self-hosted CI/CD pipeline — see [Deployment](#deployment). Design decisions with real trade-offs are written up as short ADRs in [`docs/adr/`](docs/adr/).
 
+Security policy, threat model, and operational guardrails live in [SECURITY.md](SECURITY.md) and [docs/threat-model.md](docs/threat-model.md).
+
 ---
 
 ## Tech Stack
@@ -217,11 +219,22 @@ The "same body" check is a SHA-256 of the (key-sorted) request body — see the 
 
 ---
 
+## Security Operations
+
+The security posture of this repo is documented in [docs/threat-model.md](docs/threat-model.md). It captures the practical threats we care about most: credential stuffing, BOLA/IDOR, replay, double payment, secret leakage, webhook forgery, and dependency compromise.
+
+Operationally, the important behaviors are already enforced or documented in code:
+
+- Secrets are validated at startup in `src/config/env.validation.ts`.
+- Common secret formats are redacted in `src/logging/logging.service.ts` before they reach Winston.
+- Cross-user authorization and payment boundary checks are covered in `test/app.e2e-spec.ts`.
+- Recovery procedures and alert responses live in `docs/runbook.md`.
+
 ## Observability
 
 **Metrics** (`GET /metrics`, Prometheus text format, public like the health endpoints since Prometheus doesn't send a bearer token): `http_requests_total`/`http_request_duration_seconds` (via a global interceptor, labeled by matched route pattern, not the raw URL, to avoid unbounded cardinality from path parameters), `payment_attempt/approved/failed_total`, `payment_reconciliation_total`, `stuck_payments_total` (a gauge — live count, not a running total), `stripe_request_duration_seconds`/`stripe_errors_total`, `webhook_received/duplicate/invalid_signature_total`, and `dependency_up{dependency}` (Postgres/Redis, checked every 30s — Prometheus's own `up` metric only tells you the *process* is reachable, not whether a dependency behind it is down).
 
-**Alerting**: 7 rules provisioned in Grafana (`observability/grafana/provisioning/alerting/`) — API/Postgres/Redis down, elevated 5xx rate, high payment failure rate, payments stuck PROCESSING >10min, high Stripe latency. Notification routing (Slack/email) isn't wired up — that needs credentials specific to wherever this is actually deployed, which don't exist in this environment. The rules evaluate and show Firing/Normal in the Grafana UI regardless.
+**Alerting**: 7 rules provisioned in Grafana (`observability/grafana/provisioning/alerting/`) — API/Postgres/Redis down, elevated 5xx rate, high payment failure rate, payments stuck PROCESSING >10min, high Stripe latency. Routed to an email contact point (Mailtrap SMTP) — the full fire → metric change → alert → email → recovery → resolve email cycle has been verified end to end. See [`docs/runbook.md`](docs/runbook.md) for SLOs and per-alert response steps.
 
 **Dashboard**: one Grafana dashboard (`observability/grafana/provisioning/dashboards/`), auto-provisioned, covering the metrics above. Neither Prometheus nor Grafana is exposed publicly or through the deployment's tunnel — see [Deployment](#deployment).
 
@@ -306,9 +319,8 @@ The 50-way tests provision their fixture users directly through Prisma + a signe
 
 Things that are known gaps rather than oversights:
 
-- **Grafana alert notifications aren't routed anywhere.** The 7 alert rules evaluate and show Firing/Normal in the Grafana UI, but there's no Slack/email/PagerDuty contact point wired up — that needs real credentials for wherever this is actually deployed, which don't exist in this environment.
 - **The public URL changes on restart.** The `cloudflared` Quick Tunnel is free and needs no account, but it doesn't get a stable hostname — a container restart means a new URL.
-- **Single instance, no failover.** The self-hosted runner deploys to one machine; there's no second instance or load balancer, so a host outage is a real outage, not a failover.
+- **Single instance in steady state, no failover.** The self-hosted runner deploys one `api` container; there's no load balancer or standing second instance, so a host outage is a real outage, not a failover. What *is* verified: the app's own correctness guarantees (payment claim, webhook dedup, reconciliation) don't depend on being single-instance — `scripts/multi-instance-test.js` runs a second API instance against the same Postgres/Redis and confirms the DB-level CAS and unique constraints, not in-process memory, are what actually prevent double-processing. See `docker-compose.multi-instance-test.yml`.
 - **Stripe idempotency keys expire after 24 hours.** A payment stuck `PROCESSING` far longer than reconciliation's staleness window before ever being checked would, in principle, get treated as a new charge instead of a status check. Reconciliation runs every 5 minutes by default, so this isn't reached in practice — see [ADR 002](docs/adr/002-provider-idempotency.md).
 - **Idempotency uses a 100ms poll**, not a DB wait/notify. Fine at this scale, wouldn't scale to heavy concurrent traffic on one key.
 - **No account lockout / brute-force backoff** beyond the generic IP-based throttle on `/auth/*`.
