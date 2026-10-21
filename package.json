@@ -81,5 +81,8 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.67.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }
