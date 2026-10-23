@@ -12,9 +12,13 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": true,
-    "noImplicitAny": true,
-    "strictBindCallApply": true,
+    "strict": true,
+    // DTOs and GraphQL types are populated via class-transformer/mappers,
+    // never a constructor — strictPropertyInitialization would force a
+    // dishonest `!:` on every field for no real safety gain.
+    "strictPropertyInitialization": false,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,

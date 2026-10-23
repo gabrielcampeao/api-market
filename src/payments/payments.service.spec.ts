@@ -172,8 +172,8 @@ describe('PaymentsService', () => {
     const txPaymentUpdate = jest
       .fn()
       .mockResolvedValue({ ...payment(), status: PaymentStatus.APPROVED, providerRef: 'fake_ref_123' });
-    prismaMock.$transaction.mockImplementationOnce((arg: (tx: unknown) => Promise<unknown>) =>
-      arg({
+    prismaMock.$transaction.mockImplementationOnce((arg: unknown) =>
+      (arg as (tx: unknown) => Promise<unknown>)({
         order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
         payment: { update: txPaymentUpdate },
         paymentAttempt: { update: jest.fn().mockResolvedValue({}) },
@@ -196,8 +196,8 @@ describe('PaymentsService', () => {
     const txPaymentUpdate = jest
       .fn()
       .mockResolvedValue({ ...payment(), status: PaymentStatus.REFUNDED, providerRef: 'fake_ref_123' });
-    prismaMock.$transaction.mockImplementationOnce((arg: (tx: unknown) => Promise<unknown>) =>
-      arg({
+    prismaMock.$transaction.mockImplementationOnce((arg: unknown) =>
+      (arg as (tx: unknown) => Promise<unknown>)({
         order: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) }, // order no longer PENDING
         payment: { update: txPaymentUpdate },
         paymentAttempt: { update: jest.fn().mockResolvedValue({}) },

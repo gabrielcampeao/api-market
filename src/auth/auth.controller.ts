@@ -21,12 +21,9 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { TokenResponseDto } from './dto/token-response.dto';
 
-const AUTH_THROTTLE_LIMIT = Number(process.env.THROTTLE_AUTH_LIMIT) || 20;
-const AUTH_THROTTLE_TTL_MS = Number(process.env.THROTTLE_TTL_MS) || 60_000;
-
 @ApiTags('auth')
 @Controller('auth')
-@Throttle({ auth: { limit: AUTH_THROTTLE_LIMIT, ttl: AUTH_THROTTLE_TTL_MS } })
+@Throttle({ auth: {} })
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 

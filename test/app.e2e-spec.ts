@@ -885,8 +885,8 @@ describe('Marketplace API (e2e)', () => {
         Array.from({ length: 50 }, (_, i) => createRaceUser(`race-${i}@test.dev`)),
       );
       await prisma.cartItem.createMany({
-        data: tokens.map((_, i) => ({
-          userId: (jwtService.decode(tokens[i]) as { sub: string }).sub,
+        data: tokens.map((token) => ({
+          userId: (jwtService.decode(token) as { sub: string }).sub,
           productId: raceProductId,
           quantity: 1,
         })),
