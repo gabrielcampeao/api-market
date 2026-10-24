@@ -83,7 +83,7 @@ jobs:
         run: npm run build
 
       - name: Unit tests with coverage
-        run: npm test -- --runInBand --coverage --coverageReporters=text --coverageReporters=json-summary
+        run: npm test -- --runInBand --coverage --coverageReporters=text --coverageReporters=json-summary --coverageReporters=json
 
       - name: E2E tests with coverage
         run: |
@@ -101,22 +101,29 @@ jobs:
           echo "=== Coverage Summary (unit + e2e merged) ==="
           if [ -f coverage-merged/coverage-summary.json ]; then
             node -e "
+              const THRESHOLD = 50;
               const c = require('./coverage-merged/coverage-summary.json');
               const t = c.total;
-              const pct = (name, m) => t[name].pct + '%';
+              const pct = (name) => t[name].pct + '%';
               console.log('Lines:      ' + pct('lines'));
               console.log('Branches:   ' + pct('branches'));
               console.log('Functions:  ' + pct('functions'));
               console.log('Statements: ' + pct('statements'));
-              const fail = t.lines.pct < 50 || t.branches.pct < 50;
-              if (fail) {
-                console.error('Coverage below 50% threshold — CI failing.');
+              const lines = Number(t.lines.pct);
+              const branches = Number(t.branches.pct);
+              if (!Number.isFinite(lines) || !Number.isFinite(branches) || t.lines.total === 0) {
+                console.error('Coverage summary has no measurable data (merge produced an empty report) — CI failing.');
                 process.exit(1);
               }
-              console.log('Coverage meets 50% threshold.');
+              if (lines < THRESHOLD || branches < THRESHOLD) {
+                console.error('Coverage below ' + THRESHOLD + '% threshold — CI failing.');
+                process.exit(1);
+              }
+              console.log('Coverage meets ' + THRESHOLD + '% threshold.');
             "
           else
-            echo "No coverage summary found"
+            echo 'No coverage summary found — CI failing.'
+            exit 1
           fi
 
       - name: Upload coverage artifact
