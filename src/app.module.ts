@@ -84,13 +84,22 @@ import { ThrottlerRedisLike } from './throttler/redis-throttler.storage';
         // out the full schema in production — same rationale as gating
         // Swagger in main.ts.
         introspection: !config.isProduction,
-        // `graphiql: true` serves self-hosted GraphiQL instead of the
-        // deprecated dark GraphQL Playground @nestjs/apollo defaults to.
-        // (Apollo Sandbox was tried here instead but its plugin import from
-        // `@apollo/server/plugin/landingPage/default` triggers a dual
-        // cjs/esm type-resolution conflict under ts-jest that broke the e2e
-        // suite's typecheck — not worth it for a dev-only landing page.)
-        graphiql: !config.isProduction,
+        // `graphiql: true`'s built-in landing page loads React/GraphiQL from
+        // unpkg.com — breaks silently (blank, unstyled page) behind a
+        // corporate firewall, an ad blocker, or offline. The dev landing page
+        // is served instead by localGraphiqlLandingPage() in main.ts, an
+        // Express middleware registered ahead of this module's own /graphql
+        // route, using assets vendored under public/graphiql-vendor/.
+        // (A custom Apollo plugin was tried first, but @nestjs/apollo always
+        // injects its own landing-page plugin regardless of this `graphiql`
+        // setting, and Apollo Server hard-errors when two plugins implement
+        // renderLandingPage — there's no supported way to override it via
+        // ApolloDriverConfig. Apollo Sandbox was tried even earlier, but its
+        // plugin import from `@apollo/server/plugin/landingPage/default`
+        // triggers a dual cjs/esm type-resolution conflict under ts-jest
+        // that broke the e2e suite's typecheck.)
+        graphiql: false,
+        playground: false,
         context: ({ req, res }: { req: unknown; res: unknown }) => ({ req, res }),
         // Same policy as AllExceptionsFilter for REST: never leak a stack
         // trace, and collapse anything that isn't a recognized HttpException
