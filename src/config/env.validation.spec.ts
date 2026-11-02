@@ -28,4 +28,30 @@ describe('validateEnv', () => {
       STRIPE_WEBHOOK_SECRET: 'whsec_1234567890abcdef',
     });
   });
+
+  const prodBase = {
+    ...base,
+    NODE_ENV: 'production',
+    JWT_ACCESS_SECRET: 'a'.repeat(32),
+    JWT_REFRESH_SECRET: 'b'.repeat(32),
+    ADMIN_PASSWORD: 'a-real-admin-password',
+  };
+
+  it('rejects CORS_ORIGINS of "*" in production', () => {
+    expect(() =>
+      validateEnv({ ...prodBase, CORS_ORIGINS: '*' }),
+    ).toThrow('CORS_ORIGINS must not include "*" in production (credentials are enabled).');
+  });
+
+  it('rejects "*" mixed into a CORS_ORIGINS list in production', () => {
+    expect(() =>
+      validateEnv({ ...prodBase, CORS_ORIGINS: 'https://app.example.com,*' }),
+    ).toThrow('CORS_ORIGINS must not include "*" in production (credentials are enabled).');
+  });
+
+  it('accepts an explicit origin list in production', () => {
+    expect(
+      validateEnv({ ...prodBase, CORS_ORIGINS: 'https://app.example.com' }),
+    ).toMatchObject({ CORS_ORIGINS: 'https://app.example.com' });
+  });
 });

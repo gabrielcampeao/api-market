@@ -57,6 +57,13 @@ export function validateEnv(config: Record<string, unknown>): EnvConfig {
         'ADMIN_PASSWORD must be set explicitly in production (no default allowed).',
       );
     }
+
+    const corsOrigins = config.CORS_ORIGINS as string | undefined;
+    if (corsOrigins?.split(',').map((o) => o.trim()).includes('*')) {
+      throw new Error(
+        'CORS_ORIGINS must not include "*" in production (credentials are enabled).',
+      );
+    }
   }
 
   const stripeSecretKey = config.STRIPE_SECRET_KEY as string | undefined;
