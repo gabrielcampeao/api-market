@@ -1,23 +1,13 @@
 import { Request, RequestHandler, Response } from 'express';
 
-// @nestjs/apollo always injects its own landing-page plugin (graphiql,
-// playground, or disabled) into the Apollo Server it builds, and Apollo
-// Server hard-errors ("Only one plugin can implement renderLandingPage")
-// if a second plugin also implements it — there's no supported way to swap
-// in a custom Apollo plugin here. Intercepting the route at the Express
-// layer instead sidesteps that entirely: main.ts registers this before
-// app.listen() calls GraphQLModule.onModuleInit(), which is what actually
-// mounts Apollo's own /graphql middleware, so this always runs first.
+// @nestjs/apollo always injects its own landing-page plugin, and Apollo Server
+// errors if a second plugin implements renderLandingPage too — so this intercepts
+// the route at the Express layer instead, registered in main.ts before
+// GraphQLModule.onModuleInit() mounts Apollo's /graphql middleware.
 //
-// This renders the same Apollo Sandbox UI `ApolloServerPluginLandingPageLocalDefault`
-// would (see @apollo/server/dist/cjs/plugin/landingPage/default/getEmbeddedHTML.js,
-// which this is adapted from) without importing that plugin directly — its
-// subpath import triggers a dual cjs/esm type-resolution conflict under
-// ts-jest that broke the e2e suite's typecheck. Unlike GraphiQL, Sandbox
-// can't be fully self-hosted: the UI itself renders inside an iframe served
-// live from Apollo's own CDN (embeddable-sandbox.cdn.apollographql.com), so
-// it still depends on that domain being reachable — runTelemetry is turned
-// off, but the CDN dependency itself is inherent to how Sandbox works.
+// HTML adapted from ApolloServerPluginLandingPageLocalDefault's own markup
+// (avoids importing it directly — that subpath import breaks ts-jest's cjs/esm
+// typecheck). Still depends on Apollo's CDN for the sandbox iframe itself.
 const HTML = `<!DOCTYPE html>
 <html lang="en">
   <head>

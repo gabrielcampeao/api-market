@@ -31,11 +31,7 @@ describe('RedisThrottlerStorage', () => {
     expect(redis.set).toHaveBeenCalledWith(expect.stringContaining('throttle:block:'), '1', 'PX', 60_000);
   });
 
-  // The chaos scenario: Redis is reachable at boot (so this class got
-  // selected over the in-memory fallback) but drops mid-run. Without this
-  // guarantee, every request through the global ThrottlerGuard would 500 —
-  // a rate-limiter outage taking down the whole API is a worse failure mode
-  // than temporarily unlimited traffic.
+  // Redis reachable at boot but drops mid-run — must fail open, not 500.
   it('fails open (allows the request) if Redis becomes unreachable mid-run', async () => {
     const redis = {
       get: jest.fn().mockRejectedValue(new Error('connect ECONNREFUSED')),

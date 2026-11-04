@@ -2,11 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface';
 
-// The one Redis client type shared with throttler-storage.factory.ts — that
-// factory needs `ping` (to health-check before committing to Redis-backed
-// storage) and this class needs the rest (to actually implement it), so the
-// shape lives here rather than being split into two near-identical
-// structural types.
+// Shared with throttler-storage.factory.ts, which only needs `ping` for the boot health-check.
 export interface ThrottlerRedisLike {
   ping(): Promise<string>;
   get(key: string): Promise<string | null>;
@@ -50,13 +46,8 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     try {
       return await this.doIncrement(key, ttl, limit, blockDuration, throttlerName);
     } catch (err) {
-      // This factory only runs this class after a successful Redis ping at
-      // boot — it says nothing about Redis staying up for the rest of the
-      // process's life. Without this catch, Redis dropping mid-run turns
-      // every single request through the global ThrottlerGuard into a 500,
-      // i.e. a rate limiter outage becomes a full API outage. Failing open
-      // (let the request through, unrated) is the safer failure mode: the
-      // worst case is temporarily unlimited traffic, not a dead API.
+      // Redis dropping mid-run shouldn't 500 every request via the global
+      // ThrottlerGuard — fail open (unrated) rather than take down the API.
       this.logger.warn(
         `Redis throttle check failed, allowing request through: ${err instanceof Error ? err.message : String(err)}`,
       );

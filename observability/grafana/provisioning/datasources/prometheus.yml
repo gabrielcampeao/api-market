@@ -2,10 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: Prometheus
-    # Fixed rather than Grafana's auto-generated one — the alert rules below
-    # reference this UID directly, and an auto-generated one would be a
-    # different random value every time this container's SQLite state is
-    # wiped (e.g. a fresh volume), silently breaking every alert query.
+    # Fixed UID: alert rules reference it directly, so a regenerated one on volume wipe would break every query.
     uid: prometheus_ds
     type: prometheus
     access: proxy

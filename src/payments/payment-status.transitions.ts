@@ -1,14 +1,9 @@
 import { PaymentStatus } from '@prisma/client';
 
-// The domain-legal adjacency list — kept intentionally narrower than "every
-// (from, to) pair some call site's where-clause has ever accepted". The
-// Stripe webhook's decline/approve handlers also accept PENDING as a source
-// for FAILED/APPROVED/REFUNDED, but only because of out-of-order external
-// delivery (an event can arrive before this app's own claim-to-PROCESSING
-// transition completes) — that's a webhook-specific carve-out documented at
-// its call site, not a domain transition, so it isn't listed here. Reusing
-// sourceStatusesFor() elsewhere should never accidentally permit skipping
-// PROCESSING.
+// Domain-legal adjacency list. The Stripe webhook also accepts PENDING as a
+// source for FAILED/APPROVED (out-of-order external delivery) but that's a
+// carve-out documented at its call site, not listed here — sourceStatusesFor()
+// should never permit skipping PROCESSING.
 export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   [PaymentStatus.PENDING]: [PaymentStatus.PROCESSING],
   [PaymentStatus.PROCESSING]: [
@@ -22,9 +17,8 @@ export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
   [PaymentStatus.REFUNDED]: [],
 };
 
-// The two transitions the roadmap names explicitly as provably impossible —
-// asserted individually and via a full matrix in the test, not just "not
-// observed yet".
+// Transitions the roadmap names as provably impossible, asserted individually
+// and via a full matrix in the test.
 export const IMPOSSIBLE_PAYMENT_TRANSITIONS: ReadonlyArray<[PaymentStatus, PaymentStatus]> = [
   [PaymentStatus.APPROVED, PaymentStatus.PROCESSING],
   [PaymentStatus.REFUNDED, PaymentStatus.APPROVED],

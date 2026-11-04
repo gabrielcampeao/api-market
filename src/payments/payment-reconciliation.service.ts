@@ -19,22 +19,15 @@ export interface ReconciliationSummary {
 
 type ReconcileOutcome = 'approved' | 'declined' | 'stillUnknown' | 'alreadySettled' | 'error';
 
-// Recovers payments stuck at PROCESSING — the crash-window gap documented in
-// README.md's Limitations section: the provider approved but this process
-// died before the follow-up transaction committed. Runs by querying the
-// provider (using the payment's providerIdempotencyKey — see
-// PaymentProvider.checkStatus) instead of guessing from local state alone.
+// Recovers payments stuck at PROCESSING (crash-window gap in README's
+// Limitations: provider approved but the process died before committing).
+// Queries the provider via providerIdempotencyKey instead of guessing from
+// local state.
 @Injectable()
 export class PaymentReconciliationService {
   private readonly logger = new Logger(PaymentReconciliationService.name);
-  // Guards against the cron tick firing again while a previous run (or an
-  // admin-triggered POST /payments/reconcile) is still in flight on this
-  // same instance — without it, two overlapping runs would both fetch the
-  // same stuck payment and both call the provider for it. This only
-  // protects a single instance; the updateMany count-check below is what
-  // protects against two *different* instances (or this guard's own
-  // process, if it somehow slipped past) both trying to settle the same
-  // payment at once.
+  // Prevents overlapping runs on this instance; the updateMany count-check
+  // below is what guards against two different instances racing.
   private isRunning = false;
 
   constructor(
@@ -69,29 +62,21 @@ export class PaymentReconciliationService {
         try {
           outcome = await this.reconcileOne(payment, payment.order);
         } catch (err) {
-          // One payment's DB error (or an unexpected provider throw —
-          // checkStatus is documented to resolve 'unknown' rather than
-          // throw, but this is the backstop if a provider implementation
-          // doesn't honor that) must not stop the other stuck payments in
-          // this batch from being checked.
+          // One payment's failure (DB error, or a provider throwing instead
+          // of resolving 'unknown') must not stop the rest of the batch.
           this.logger.error(
             `Reconciliation failed for payment ${payment.id}: ${err instanceof Error ? err.message : String(err)}`,
           );
           outcome = 'error';
         }
-        // approved/declined/stillUnknown are the only outcomes the public
-        // summary reports (unchanged shape); alreadySettled/error are
-        // still counted in payment_reconciliation_total for visibility but
-        // don't inflate a bucket that would misrepresent what actually
-        // changed this run.
+        // alreadySettled/error still count toward payment_reconciliation_total
+        // but don't inflate the summary buckets reported back to the caller.
         if (outcome === 'approved' || outcome === 'declined' || outcome === 'stillUnknown') {
           summary[outcome]++;
         }
         this.metrics.paymentReconciliationTotal.inc({ outcome });
       }
-      // Payments this run couldn't resolve — a live count of what's actually
-      // stuck right now, not a running total (which paymentReconciliationTotal
-      // already is), so this is a gauge rather than a counter.
+      // Gauge (current stuck count), not a running total like the counter above.
       this.metrics.stuckPaymentsTotal.set(summary.stillUnknown);
       if (summary.checked > 0) {
         this.logger.log(
@@ -117,9 +102,7 @@ export class PaymentReconciliationService {
       );
     } catch (err) {
       if (err instanceof TimeoutError) {
-        // Same treatment as the provider itself returning 'unknown': try
-        // again next run rather than guessing an outcome for a call that
-        // may still be in flight on the provider's side.
+        // Treat like the provider returning 'unknown' — retry next run.
         this.logger.warn(`Reconciliation checkStatus timed out for payment ${payment.id}`);
         return 'stillUnknown';
       }
@@ -129,23 +112,18 @@ export class PaymentReconciliationService {
       return 'stillUnknown';
     }
 
-    // The attempt PaymentsService.pay() created before calling the provider —
-    // reconciliation updates that record rather than creating a new one, so
-    // the attempt history still reads as "one call, resolved late" instead
-    // of inventing a second attempt that never happened.
+    // Updates the attempt PaymentsService.pay() already created, rather than
+    // creating a new one — history reads as "one call, resolved late".
     const attempt = await this.prisma.paymentAttempt.findFirst({
       where: { paymentId: payment.id },
       orderBy: { startedAt: 'desc' },
     });
 
     if (result.status === 'declined') {
-      // Claim first, update the attempt record second: if another
-      // reconciliation run (or the webhook handler) already moved this
-      // payment out of PROCESSING, this updateMany matches zero rows and
-      // the function returns before ever touching paymentAttempt — writing
-      // DECLINED into the attempt history first would be wrong if the
-      // payment's real final status (set by whichever run actually won)
-      // turns out to be APPROVED.
+      // Claim first, update the attempt second — if another run/webhook
+      // already moved this payment out of PROCESSING, updateMany matches
+      // zero rows and we bail before writing a DECLINED attempt that might
+      // contradict the real final status set by whichever run won.
       const claim = await this.prisma.payment.updateMany({
         where: { id: payment.id, status: PaymentStatus.PROCESSING },
         data: { status: PaymentStatus.FAILED, providerRef: result.providerRef ?? null, processingAt: null },
@@ -179,17 +157,11 @@ export class PaymentReconciliationService {
     }
 
     // Approved — same order-vs-payment atomicity as PaymentsService.pay():
-    // if the order was cancelled while this payment was stuck, reverse the
-    // charge instead of marking a cancelled order as paid. Unlike
-    // PaymentsService.pay(), this run never atomically claimed the payment
-    // before calling the provider (there's no earlier PENDING/FAILED ->
-    // PROCESSING transition to piggyback on — it was already PROCESSING
-    // when this batch found it), so the claim has to happen as the very
-    // first write here, before the order is touched at all. Otherwise a
-    // second reconciliation run racing on the same payment could flip the
-    // order to PAID a second time (harmless, `status: PENDING` is already
-    // gone) but then, on losing the payment claim below, misreport this
-    // run's own outcome as a reversal it never actually performed.
+    // reverse the charge if the order was cancelled while this payment was
+    // stuck. The payment claim must be the first write here (unlike pay(),
+    // there's no earlier PENDING->PROCESSING transition to piggyback on) —
+    // otherwise a racing reconciliation run could lose the claim below but
+    // still misreport a reversal it never performed.
     const outcome = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.payment.updateMany({
         where: { id: payment.id, status: PaymentStatus.PROCESSING },

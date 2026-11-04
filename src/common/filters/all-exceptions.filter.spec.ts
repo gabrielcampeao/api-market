@@ -22,12 +22,8 @@ describe('AllExceptionsFilter', () => {
     filter = new AllExceptionsFilter(loggingMock);
   });
 
-  // The chaos scenario: Postgres becomes unreachable mid-request. Prisma
-  // surfaces that as PrismaClientInitializationError/UnknownRequestError,
-  // neither of which is a PrismaClientKnownRequestError (those are for
-  // *known* database errors like unique violations) — this is what proves
-  // that class of failure still gets a clean, generic 500 instead of
-  // crashing the process or leaking a stack trace to the client.
+  // Postgres unreachable mid-request surfaces as PrismaClientInitializationError,
+  // not PrismaClientKnownRequestError — must still map to a generic 500.
   it('turns an unrecognized database failure into a generic 500 without leaking internals', () => {
     const response = { status: jest.fn().mockReturnThis(), json: jest.fn() };
     const request = { method: 'GET', originalUrl: '/api/products' };
