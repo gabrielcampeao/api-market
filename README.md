@@ -39,7 +39,7 @@ Security notes and known risks are documented in [`SECURITY.md`](SECURITY.md) an
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Area           | Technology                          |
 | -------------- | ----------------------------------- |
@@ -107,7 +107,7 @@ The business rules are not duplicated between the two APIs.
 
 ---
 
-## Data Model
+## Data model
 
 Main relationships:
 
@@ -209,7 +209,7 @@ For critical transitions, the condition is included directly in the database upd
 
 ---
 
-## Payment Claim
+## Payment claim
 
 Before calling the payment provider, a payment must move from:
 
@@ -263,7 +263,7 @@ The explicit `PROCESSING` state is clearer and easier to recover later.
 
 ---
 
-## Checkout Stock Race
+## Checkout stock race
 
 Stock is also updated conditionally:
 
@@ -297,7 +297,7 @@ That provides a second line of defense if application logic is ever bypassed.
 
 ---
 
-## Order Cancellation vs Payment
+## Order cancellation vs payment
 
 Cancellation also depends on the current state:
 
@@ -319,7 +319,7 @@ This prevents two independent operations from silently overwriting each other.
 
 ---
 
-# Payment Settlement
+# Payment settlement
 
 A payment can be confirmed by three different paths:
 
@@ -415,7 +415,7 @@ That is enough for this project, but it is documented as something that would ne
 
 ---
 
-# Stripe Payments
+# Stripe payments
 
 When `STRIPE_SECRET_KEY` is configured, the application uses Stripe.
 
@@ -438,7 +438,7 @@ Similar abstractions were removed elsewhere when they did not provide any practi
 
 ---
 
-## Payment Attempts
+## Payment attempts
 
 `Payment` represents the logical payment.
 
@@ -466,7 +466,7 @@ Keeping attempts separately makes failures and retries easier to understand late
 
 ---
 
-## Provider Idempotency
+## Provider idempotency
 
 Client idempotency protects:
 
@@ -500,7 +500,7 @@ Without provider-side idempotency, the retry could become another charge.
 
 ---
 
-# Stripe Webhooks
+# Stripe webhooks
 
 Stripe sends events to:
 
@@ -522,7 +522,7 @@ This was a real bug found while testing the webhook integration.
 
 ---
 
-## Webhook Deduplication
+## Webhook deduplication
 
 Every received Stripe event is persisted with:
 
@@ -555,7 +555,7 @@ The others become safe duplicates.
 
 ---
 
-## Webhook Correlation
+## Webhook correlation
 
 The first implementation tried to find the local payment using `providerRef`.
 
@@ -620,7 +620,7 @@ This was verified using two API instances sharing the same PostgreSQL and Redis.
 
 ---
 
-# Exactly Once?
+# Exactly once?
 
 The project does not claim to provide a universal exactly-once transaction across PostgreSQL and Stripe.
 
@@ -741,7 +741,7 @@ This avoids unbounded metric cardinality.
 
 ---
 
-# Grafana and Alerts
+# Grafana and alerts
 
 Grafana is provisioned from files stored in the repository.
 
@@ -843,7 +843,7 @@ Prometheus and Grafana are not exposed through the public tunnel.
 
 ---
 
-# Multi-Instance Test
+# Multi-instance test
 
 Production normally runs one API instance.
 
@@ -878,7 +878,7 @@ Cross-instance correctness comes from PostgreSQL, not process memory.
 
 ---
 
-# Backup and Restore
+# Backup and restore
 
 A backup and restore drill is available at:
 
@@ -910,7 +910,7 @@ The production database is not modified during the drill.
 
 ---
 
-# Load Testing
+# Load testing
 
 The deployed API was tested using a custom load runner.
 
@@ -980,7 +980,7 @@ Some concurrency tests send between 50 and 100 requests in parallel.
 
 ---
 
-# Health Checks
+# Health checks
 
 ```text
 GET /health/live
@@ -1000,7 +1000,7 @@ These endpoints are used by deployment and monitoring.
 
 ---
 
-# Running Locally
+# Running locally
 
 ## Requirements
 
@@ -1032,11 +1032,11 @@ http://localhost:3000/docs
 
 ---
 
-# Known Limitations
+# Known limitations
 
 These are known gaps, not hidden TODOs.
 
-## Single Production Instance
+## Single production instance
 
 The normal deployment runs one API container.
 
@@ -1054,7 +1054,7 @@ Restarting the tunnel can change the public URL.
 
 ---
 
-## Stripe Idempotency Lifetime
+## Stripe idempotency lifetime
 
 Stripe idempotency keys have a limited lifetime.
 
@@ -1062,7 +1062,7 @@ Reconciliation normally happens far earlier than that window, but this is still 
 
 ---
 
-## Idempotency Waiting
+## Idempotency waiting
 
 Concurrent requests using the same `Idempotency-Key` currently wait using short polling.
 
@@ -1072,7 +1072,7 @@ It would need to be reconsidered under high contention on the same key.
 
 ---
 
-## Authentication Throttling
+## Authentication throttling
 
 Authentication routes are protected by IP-based throttling.
 
@@ -1080,7 +1080,7 @@ There is no account-level lockout or exponential backoff yet.
 
 ---
 
-## Product Search
+## Product search
 
 `Product.name` uses a `contains` query and currently performs a sequential scan.
 
@@ -1090,7 +1090,7 @@ A trigram index was considered but was not necessary for the current dataset.
 
 ---
 
-## Hand-Written CHECK Constraints
+## Hand-written CHECK constraints
 
 Some PostgreSQL `CHECK` constraints are defined directly in migration SQL.
 
@@ -1098,7 +1098,7 @@ Prisma does not expose all of these constraints cleanly through its schema DSL.
 
 ---
 
-## Load-Test Data
+## Load-test data
 
 Orders created during load testing remain in the database to preserve historical foreign-key relationships.
 
@@ -1106,7 +1106,7 @@ Products used only for the test are deactivated instead of removing records that
 
 ---
 
-# Things I Deliberately Did Not Add
+# Things I deliberately did not add
 
 ## Outbox
 
@@ -1130,7 +1130,7 @@ Adding a full Outbox subsystem for the current use case would add more infrastru
 
 ---
 
-## Kafka, Kubernetes, CQRS and Event Sourcing
+## Kafka, Kubernetes, CQRS, and event sourcing
 
 These were not added because they do not solve a current constraint in this project.
 
@@ -1140,7 +1140,7 @@ If the constraints change, these decisions can be revisited.
 
 ---
 
-# Architecture Decision Records
+# Architecture decision records
 
 The decisions that needed more context than a code comment are documented in:
 
@@ -1173,7 +1173,7 @@ The goal is to keep the reasoning behind the decisions that would otherwise be e
 
 ---
 
-## Project Status
+## Project status
 
 Current project coverage includes:
 

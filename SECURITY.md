@@ -16,14 +16,14 @@ The main risks documented for this project are:
 
 See [docs/threat-model.md](docs/threat-model.md) for the full threat model and mitigations.
 
-## What To Do If A Secret Leaks
+## What to do if a secret leaks
 
 1. Rotate the exposed secret immediately.
 2. Invalidate any credentials or tokens derived from it.
 3. Check whether the secret reached git history, logs, CI output, or issue trackers.
 4. Update the incident notes and, if needed, add a regression test or guardrail.
 
-## Logging Rules
+## Logging rules
 
 - Do not log JWTs.
 - Do not log refresh tokens.
@@ -33,19 +33,19 @@ See [docs/threat-model.md](docs/threat-model.md) for the full threat model and m
 
 The application redacts common secret formats in `src/logging/logging.service.ts`, but ad-hoc debug logging should still assume logs are public evidence.
 
-## Configuration Rules
+## Configuration rules
 
 - Production JWT secrets must be strong and are validated at startup.
 - If `STRIPE_SECRET_KEY` is configured, `STRIPE_WEBHOOK_SECRET` must also be present.
 - Missing or weak security-critical config should fail fast during boot.
 
-## Authorization Rules
+## Authorization rules
 
 - A normal user must never read or mutate another user’s orders, payments, cart, or profile data.
 - Admin-only routes must remain role-protected.
 - Cross-user authorization should be covered by automated tests whenever new ownership-sensitive endpoints are added.
 
-## Operational References
+## Operational references
 
 - [docs/runbook.md](docs/runbook.md)
 - [docs/threat-model.md](docs/threat-model.md)
