@@ -1,11 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Field, InputType } from '@nestjs/graphql';
 import { OrderStatus } from '@prisma/client';
-import {
-  IsEnum,
-  IsISO8601,
-  IsOptional,
-} from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
 @InputType()

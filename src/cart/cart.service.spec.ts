@@ -129,17 +129,17 @@ describe('CartService', () => {
   it('rejects adding more than the available stock', async () => {
     prismaMock.product.findUnique.mockResolvedValue(product({ stock: 1 }));
 
-    await expect(
-      service.addItem('u-1', { productId: 'p-1', quantity: 5 }, ctx),
-    ).rejects.toThrow(BadRequestException);
+    await expect(service.addItem('u-1', { productId: 'p-1', quantity: 5 }, ctx)).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('rejects adding an inactive product', async () => {
     prismaMock.product.findUnique.mockResolvedValue(product({ isActive: false }));
 
-    await expect(
-      service.addItem('u-1', { productId: 'p-1', quantity: 1 }, ctx),
-    ).rejects.toThrow(NotFoundException);
+    await expect(service.addItem('u-1', { productId: 'p-1', quantity: 1 }, ctx)).rejects.toThrow(
+      NotFoundException,
+    );
   });
 
   it('updates the quantity of an existing item', async () => {

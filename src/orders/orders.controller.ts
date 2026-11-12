@@ -43,10 +43,7 @@ export class OrdersController {
   @Idempotent()
   @ApiOperation({ summary: 'Checkout the current cart into a new order' })
   @ApiCreatedResponse({ type: OrderDto })
-  checkout(
-    @CurrentUser() user: AuthenticatedUser,
-    @Req() req: Request,
-  ): Promise<OrderDto> {
+  checkout(@CurrentUser() user: AuthenticatedUser, @Req() req: Request): Promise<OrderDto> {
     return this.ordersService.checkout(user.id, getRequestContext(req));
   }
 

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-
 export interface AuditLogParams {
   userId?: string | null;
   action: string;
@@ -11,11 +10,9 @@ export interface AuditLogParams {
   ip?: string;
   userAgent?: string;
 }
-
 @Injectable()
 export class AuditLogService {
   constructor(private readonly prisma: PrismaService) {}
-
   async log(params: AuditLogParams): Promise<void> {
     try {
       await this.prisma.auditLog.create({
@@ -30,7 +27,7 @@ export class AuditLogService {
         },
       });
     } catch {
-      // Audit logging must never break the business flow.
+      return;
     }
   }
 }

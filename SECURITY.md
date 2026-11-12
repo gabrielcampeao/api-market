@@ -1,53 +1,52 @@
 # Security Policy
 
-This repository treats security as an operational practice, not just a code review topic.
+Security here isn't a checkbox at review time — it's part of how the project runs day to day.
 
 ## Scope
 
-The main risks documented for this project are:
+Main risks this project tracks:
 
 - credential stuffing
 - broken object authorization (BOLA / IDOR)
-- replay of mutating requests
+- mutating-request replay
 - double payment
 - secret leakage
 - webhook forgery
 - dependency compromise
 
-See [docs/threat-model.md](docs/threat-model.md) for the full threat model and mitigations.
+Full threat model and mitigations live in [docs/threat-model.md](docs/threat-model.md).
 
-## What to do if a secret leaks
+## If a secret leaks
 
-1. Rotate the exposed secret immediately.
-2. Invalidate any credentials or tokens derived from it.
-3. Check whether the secret reached git history, logs, CI output, or issue trackers.
-4. Update the incident notes and, if needed, add a regression test or guardrail.
+1. Rotate it right away.
+2. Invalidate anything derived from it (tokens, credentials).
+3. Check git history, logs, CI output, and issue trackers for exposure.
+4. Update incident notes; add a regression test or guardrail if the gap allows a repeat.
 
 ## Logging rules
 
-- Do not log JWTs.
-- Do not log refresh tokens.
-- Do not log passwords.
-- Do not log Stripe secret material.
-- Do not log provider payloads that contain sensitive data.
+- No JWTs in logs.
+- No refresh tokens in logs.
+- No passwords in logs.
+- No Stripe secret material in logs.
+- No provider payloads containing sensitive data.
 
-The application redacts common secret formats in `src/logging/logging.service.ts`, but ad-hoc debug logging should still assume logs are public evidence.
+`src/logging/logging.service.ts` redacts common secret formats, but treat any ad-hoc debug logging as if it will end up somewhere public.
 
 ## Configuration rules
 
-- Production JWT secrets must be strong and are validated at startup.
-- If `STRIPE_SECRET_KEY` is configured, `STRIPE_WEBHOOK_SECRET` must also be present.
-- Missing or weak security-critical config should fail fast during boot.
+- Production JWT secrets must be strong; this is validated at startup.
+- `STRIPE_WEBHOOK_SECRET` is required whenever `STRIPE_SECRET_KEY` is set.
+- Weak or missing security-critical config should fail the boot, not warn and continue.
 
 ## Authorization rules
 
-- A normal user must never read or mutate another user’s orders, payments, cart, or profile data.
-- Admin-only routes must remain role-protected.
-- Cross-user authorization should be covered by automated tests whenever new ownership-sensitive endpoints are added.
+- Users must never read or mutate another user's orders, payments, cart, or profile data.
+- Admin-only routes stay role-protected.
+- New ownership-sensitive endpoints need automated tests covering cross-user access.
 
-## Operational references
+## Related docs
 
 - [docs/runbook.md](docs/runbook.md)
 - [docs/threat-model.md](docs/threat-model.md)
 - [README.md](README.md)
-

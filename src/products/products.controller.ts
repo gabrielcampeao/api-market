@@ -1,14 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  Req,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import {
   ApiBearerAuth,
@@ -51,9 +41,7 @@ export class ProductsController {
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'List all products including inactive (admin)' })
   @ApiPaginatedResponse(ProductDto)
-  findAllAdmin(
-    @Query() query: QueryProductsDto,
-  ): Promise<PaginatedResponseDto<ProductDto>> {
+  findAllAdmin(@Query() query: QueryProductsDto): Promise<PaginatedResponseDto<ProductDto>> {
     return this.productsService.findAll(query, true);
   }
 
