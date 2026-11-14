@@ -43,7 +43,13 @@ describe('IdempotencyService', () => {
     prismaMock.idempotencyKey.create.mockResolvedValue({});
     const handler = jest.fn().mockResolvedValue({ statusCode: 201, body: { id: 1 } });
 
-    const result = await service.execute('key-1', 'user-1', 'POST /orders/checkout', 'hash-a', handler);
+    const result = await service.execute(
+      'key-1',
+      'user-1',
+      'POST /orders/checkout',
+      'hash-a',
+      handler,
+    );
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(prismaMock.idempotencyKey.create).toHaveBeenCalledWith(
@@ -64,7 +70,13 @@ describe('IdempotencyService', () => {
     });
     const handler = jest.fn();
 
-    const result = await service.execute('key-1', 'user-1', 'POST /orders/checkout', 'hash-a', handler);
+    const result = await service.execute(
+      'key-1',
+      'user-1',
+      'POST /orders/checkout',
+      'hash-a',
+      handler,
+    );
 
     expect(handler).not.toHaveBeenCalled();
     expect(result).toEqual({ statusCode: 201, body: { id: 1 } });
@@ -106,24 +118,38 @@ describe('IdempotencyService', () => {
     expect(prismaMock.idempotencyKey.findUnique).toHaveBeenCalledTimes(2);
   });
 
-  it('waits for and returns the winning concurrent request\'s result when the body matches', async () => {
+  it("waits for and returns the winning concurrent request's result when the body matches", async () => {
     prismaMock.idempotencyKey.findUnique
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ requestHash: 'hash-a', statusCode: 0, body: null, expiresAt: new Date(Date.now() + 60_000) })
-      .mockResolvedValueOnce({ requestHash: 'hash-a', statusCode: 201, body: { id: 7 }, expiresAt: new Date(Date.now() + 60_000) });
+      .mockResolvedValueOnce({
+        requestHash: 'hash-a',
+        statusCode: 0,
+        body: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .mockResolvedValueOnce({
+        requestHash: 'hash-a',
+        statusCode: 201,
+        body: { id: 7 },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
     prismaMock.idempotencyKey.create.mockRejectedValue(p2002());
     const handler = jest.fn();
 
-    const result = await service.execute('key-1', 'user-1', 'POST /orders/checkout', 'hash-a', handler);
+    const result = await service.execute(
+      'key-1',
+      'user-1',
+      'POST /orders/checkout',
+      'hash-a',
+      handler,
+    );
 
     expect(handler).not.toHaveBeenCalled();
     expect(result).toEqual({ statusCode: 201, body: { id: 7 } });
   });
 
   it('lets a retry proceed once the original attempt failed and released the lock', async () => {
-    prismaMock.idempotencyKey.findUnique
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null); // winner's row is gone — it errored and deleted it
+    prismaMock.idempotencyKey.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null); // winner's row is gone — it errored and deleted it
     prismaMock.idempotencyKey.create.mockRejectedValue(p2002());
     const handler = jest.fn();
 

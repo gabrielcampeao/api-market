@@ -1,11 +1,7 @@
 import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcryptjs';
 import { createHash } from 'crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/app-config.service';
@@ -147,10 +143,7 @@ describe('AuthService', () => {
     prismaMock.user.findUnique.mockResolvedValue(baseUser);
 
     await expect(
-      service.register(
-        { email: 'jane@example.com', name: 'Jane', password: 'password123' },
-        ctx,
-      ),
+      service.register({ email: 'jane@example.com', name: 'Jane', password: 'password123' }, ctx),
     ).rejects.toThrow(ConflictException);
   });
 
@@ -158,25 +151,17 @@ describe('AuthService', () => {
     prismaMock.user.findUnique.mockResolvedValue(baseUser);
     prismaMock.refreshToken.create.mockResolvedValue({});
 
-    const result = await service.login(
-      { email: 'jane@example.com', password: 'password123' },
-      ctx,
-    );
+    const result = await service.login({ email: 'jane@example.com', password: 'password123' }, ctx);
 
     expect(result.accessToken).toBe('signed-access-token');
-    expect(auditMock.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'auth.login' }),
-    );
+    expect(auditMock.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.login' }));
   });
 
   it('rejects invalid credentials', async () => {
     prismaMock.user.findUnique.mockResolvedValue(baseUser);
 
     await expect(
-      service.login(
-        { email: 'jane@example.com', password: 'wrong-password' },
-        ctx,
-      ),
+      service.login({ email: 'jane@example.com', password: 'wrong-password' }, ctx),
     ).rejects.toThrow(UnauthorizedException);
     expect(auditMock.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'auth.login_failed' }),
@@ -190,10 +175,7 @@ describe('AuthService', () => {
     });
 
     await expect(
-      service.login(
-        { email: 'jane@example.com', password: 'password123' },
-        ctx,
-      ),
+      service.login({ email: 'jane@example.com', password: 'password123' }, ctx),
     ).rejects.toThrow(UnauthorizedException);
   });
 
@@ -227,9 +209,9 @@ describe('AuthService', () => {
       user: baseUser,
     });
 
-    await expect(
-      service.refresh({ refreshToken: 'revoked-token' }, ctx),
-    ).rejects.toThrow(UnauthorizedException);
+    await expect(service.refresh({ refreshToken: 'revoked-token' }, ctx)).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('resets the password with a valid token', async () => {
@@ -240,10 +222,7 @@ describe('AuthService', () => {
       expiresAt: new Date(Date.now() + 1000 * 60 * 60),
     });
 
-    await service.resetPassword(
-      { token: 'reset-token', newPassword: 'newPassword123' },
-      ctx,
-    );
+    await service.resetPassword({ token: 'reset-token', newPassword: 'newPassword123' }, ctx);
 
     expect(prismaMock.user.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -266,10 +245,7 @@ describe('AuthService', () => {
     prismaMock.passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
-      service.resetPassword(
-        { token: 'reset-token', newPassword: 'newPassword123' },
-        ctx,
-      ),
+      service.resetPassword({ token: 'reset-token', newPassword: 'newPassword123' }, ctx),
     ).rejects.toThrow(BadRequestException);
   });
 

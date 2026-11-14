@@ -45,12 +45,7 @@ export class CartResolver {
     @CurrentUser() user: AuthenticatedUser,
     @Context('req') req: Request,
   ): Promise<MessageResponse> {
-    const item = await this.cartService.updateItem(
-      user.id,
-      productId,
-      dto,
-      getRequestContext(req),
-    );
+    const item = await this.cartService.updateItem(user.id, productId, dto, getRequestContext(req));
     return { message: `Quantity updated (quantity: ${item.quantity})` };
   }
 

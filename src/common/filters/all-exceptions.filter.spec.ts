@@ -3,7 +3,10 @@ import { Prisma } from '@prisma/client';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { LoggingService } from '../../logging/logging.service';
 
-function httpHost(request: { method: string; originalUrl: string }, response: { status: jest.Mock; json: jest.Mock }) {
+function httpHost(
+  request: { method: string; originalUrl: string },
+  response: { status: jest.Mock; json: jest.Mock },
+) {
   return {
     getType: () => 'http',
     switchToHttp: () => ({

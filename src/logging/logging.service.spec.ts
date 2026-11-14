@@ -4,7 +4,9 @@ import { LoggingService } from './logging.service';
 describe('LoggingService', () => {
   it('redacts common secret formats before logging', () => {
     const service = new LoggingService({ get: () => 'development' } as unknown as ConfigService);
-    const logger = service as unknown as { formatMessage(message: unknown, params: unknown[]): string };
+    const logger = service as unknown as {
+      formatMessage(message: unknown, params: unknown[]): string;
+    };
 
     expect(
       logger.formatMessage(

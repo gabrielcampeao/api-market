@@ -12,30 +12,30 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
 import { MailService } from '../mail/mail.service';
-import { PAYMENT_PROVIDER, PaymentProvider } from '../payments/providers/payment-provider.interface';
+import {
+  PAYMENT_PROVIDER,
+  PaymentProvider,
+} from '../payments/providers/payment-provider.interface';
 import { RequestContext } from '../common/utils/request-context.util';
 import { buildPaginationMeta, PaginatedResponseDto } from '../common/dto/paginated-response.dto';
 import { toOrderDto, OrderDto, OrderWithRelations } from './dto/order.dto';
 import { QueryOrdersDto } from './dto/query-orders.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { ORDER_TRANSITIONS } from './order-status.transitions';
-
 const ORDER_INCLUDE = {
   items: { include: { product: true } },
   payment: true,
 } satisfies Prisma.OrderInclude;
-
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly mail: MailService,
-    @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: PaymentProvider,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
   ) {}
-
   async checkout(userId: string, ctx: RequestContext): Promise<OrderDto> {
     const cartItems = await this.prisma.cartItem.findMany({
       where: { userId },
@@ -44,21 +44,17 @@ export class OrdersService {
     if (cartItems.length === 0) {
       throw new BadRequestException('Cart is empty');
     }
-
     const order = await this.prisma.$transaction(
       async (tx) => {
         const products = await tx.product.findMany({
           where: { id: { in: cartItems.map((i) => i.productId) } },
         });
         const productMap = new Map(products.map((p) => [p.id, p]));
-
         let total = new Decimal(0);
         const lines = cartItems.map((item) => {
           const product = productMap.get(item.productId);
           if (!product || !product.isActive) {
-            throw new BadRequestException(
-              `Product ${item.productId} is no longer available`,
-            );
+            throw new BadRequestException(`Product ${item.productId} is no longer available`);
           }
           if (product.stock < item.quantity) {
             throw new BadRequestException(
@@ -68,20 +64,15 @@ export class OrdersService {
           total = total.add(product.price.mul(item.quantity));
           return { product, quantity: item.quantity };
         });
-
-        // Atomic stock decrement prevents overselling under concurrency.
         for (const line of lines) {
           const result = await tx.product.updateMany({
             where: { id: line.product.id, stock: { gte: line.quantity } },
             data: { stock: { decrement: line.quantity } },
           });
           if (result.count === 0) {
-            throw new BadRequestException(
-              `Insufficient stock for "${line.product.name}"`,
-            );
+            throw new BadRequestException(`Insufficient stock for "${line.product.name}"`);
           }
         }
-
         const created = await tx.order.create({
           data: {
             userId,
@@ -103,21 +94,11 @@ export class OrdersService {
           },
           include: ORDER_INCLUDE,
         });
-
         await tx.cartItem.deleteMany({ where: { userId } });
         return created;
       },
-      { timeout: 10_000 },
+      { timeout: 10000 },
     );
-
-    // The order is already committed at this point — a mail failure here is
-    // not a checkout failure. Without this try/catch, a throwing mail
-    // provider would turn a successful checkout into a 500 response for an
-    // order that actually exists, which is worse than a missing email. This
-    // is the same class of problem the Outbox pattern solves for durable
-    // retry; a bare try/catch is enough here because there's no retry
-    // requirement to meet — a lost confirmation email isn't something a user
-    // can't recover from (their order still shows up under "my orders").
     const owner = await this.prisma.user.findUnique({ where: { id: userId } });
     try {
       await this.mail.sendOrderConfirmation(
@@ -130,7 +111,6 @@ export class OrdersService {
         `Failed to send order confirmation for order ${order.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-
     await this.audit.log({
       userId,
       action: 'order.checkout',
@@ -140,21 +120,17 @@ export class OrdersService {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
     });
-
     return toOrderDto(order as OrderWithRelations);
   }
-
   async findAllForUser(
     userId: string,
     query: QueryOrdersDto,
   ): Promise<PaginatedResponseDto<OrderDto>> {
     return this.paginate({ ...query, userId });
   }
-
   async findAll(query: QueryOrdersDto): Promise<PaginatedResponseDto<OrderDto>> {
     return this.paginate(query);
   }
-
   async findById(orderId: string, userId?: string): Promise<OrderWithRelations> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -168,37 +144,27 @@ export class OrdersService {
     }
     return order as OrderWithRelations;
   }
-
   async cancel(userId: string, orderId: string, ctx: RequestContext): Promise<OrderDto> {
     const order = await this.findById(orderId, userId);
-
     if (order.status !== OrderStatus.PENDING) {
       throw new BadRequestException(
         `Only PENDING orders can be cancelled (current: ${order.status})`,
       );
     }
-
     const cancelled = await this.prisma.$transaction(async (tx) => {
-      // Atomically attempt to move status PENDING→CANCELLED.
-      // If another request (e.g. payment) already changed it, count = 0.
       const changed = await tx.order.updateMany({
         where: { id: orderId, status: OrderStatus.PENDING },
         data: { status: OrderStatus.CANCELLED },
       });
       if (changed.count === 0) {
-        throw new BadRequestException(
-          'Order status has changed — cannot cancel',
-        );
+        throw new BadRequestException('Order status has changed — cannot cancel');
       }
-
       await this.restoreStock(tx, order);
-
       return tx.order.findUnique({
         where: { id: orderId },
         include: ORDER_INCLUDE,
       });
     });
-
     await this.audit.log({
       userId,
       action: 'order.cancel',
@@ -209,7 +175,6 @@ export class OrdersService {
     });
     return toOrderDto(cancelled as OrderWithRelations);
   }
-
   async updateStatus(
     adminId: string,
     orderId: string,
@@ -217,24 +182,16 @@ export class OrdersService {
     ctx: RequestContext,
   ): Promise<OrderDto> {
     const order = await this.findById(orderId);
-
     const allowed = ORDER_TRANSITIONS[order.status];
     if (!allowed.includes(dto.status)) {
       throw new BadRequestException(
         `Cannot transition order from ${order.status} to ${dto.status}`,
       );
     }
-
     if (dto.status === OrderStatus.PAID) {
-      throw new BadRequestException(
-        'Set the order as PAID through the payment endpoint',
-      );
+      throw new BadRequestException('Set the order as PAID through the payment endpoint');
     }
-
     const updated = await this.prisma.$transaction(async (tx) => {
-      // Atomic transition guarded by the previously-read status prevents
-      // concurrent admin updates from clobbering each other (e.g. double
-      // stock-restore if two CANCELLED requests race).
       const changed = await tx.order.updateMany({
         where: { id: orderId, status: order.status },
         data: { status: dto.status },
@@ -242,12 +199,8 @@ export class OrdersService {
       if (changed.count === 0) {
         throw new BadRequestException('Order status has changed — retry');
       }
-
       if (dto.status === OrderStatus.CANCELLED) {
         await this.restoreStock(tx, order);
-
-        // A PAID order being cancelled had money captured — reverse the
-        // Payment record so it stops showing APPROVED with no order behind it.
         if (order.status === OrderStatus.PAID && order.payment) {
           await tx.payment.update({
             where: { id: order.payment.id },
@@ -255,13 +208,11 @@ export class OrdersService {
           });
         }
       }
-
       return tx.order.findUnique({
         where: { id: orderId },
         include: ORDER_INCLUDE,
       });
     });
-
     await this.audit.log({
       userId: adminId,
       action: 'order.status_change',
@@ -273,12 +224,12 @@ export class OrdersService {
     });
     return toOrderDto(updated as OrderWithRelations);
   }
-
   private async paginate(
-    query: QueryOrdersDto & { userId?: string },
+    query: QueryOrdersDto & {
+      userId?: string;
+    },
   ): Promise<PaginatedResponseDto<OrderDto>> {
     const { page, limit } = query;
-
     const where: Prisma.OrderWhereInput = {};
     if (query.userId) {
       where.userId = query.userId;
@@ -295,7 +246,6 @@ export class OrdersService {
         where.createdAt.lte = new Date(query.to);
       }
     }
-
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
@@ -306,13 +256,11 @@ export class OrdersService {
         take: limit,
       }),
     ]);
-
     return new PaginatedResponseDto(
       (rows as OrderWithRelations[]).map(toOrderDto),
       buildPaginationMeta(total, page, limit),
     );
   }
-
   private async restoreStock(
     tx: Prisma.TransactionClient,
     order: OrderWithRelations,

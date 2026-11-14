@@ -40,7 +40,7 @@ describe('MetricsService', () => {
     }
   });
 
-  it('scopes metrics to its own registry instead of prom-client\'s shared default', async () => {
+  it("scopes metrics to its own registry instead of prom-client's shared default", async () => {
     const other = new MetricsService();
     other.paymentAttemptTotal.inc({ provider: 'fake' });
 

@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Product } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../logging/audit-log.service';
@@ -115,7 +111,11 @@ export class ProductsService {
       entity: 'product',
       entityId: id,
       metadata: {
-        previous: { price: existing.price.toFixed(2), stock: existing.stock, isActive: existing.isActive },
+        previous: {
+          price: existing.price.toFixed(2),
+          stock: existing.stock,
+          isActive: existing.isActive,
+        },
         changes: dto,
       } as unknown as Prisma.InputJsonValue,
       ip: ctx.ip,
